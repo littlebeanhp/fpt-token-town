@@ -1,5 +1,8 @@
 node_modules/
 .next/
+out/
+.wrangler/
+.claude/worktrees/
 *.tsbuildinfo
 test-results/
 playwright-report/

@@ -1,0 +1,11 @@
+// Cloudflare Workers static assets: serves the Next.js static export in ./out.
+// Deploy with `npm run deploy:cloudflare`, or let the GitHub Action deploy pushes to main.
+{
+  "name": "fpt-token-town",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./out",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash",
+  },
+}

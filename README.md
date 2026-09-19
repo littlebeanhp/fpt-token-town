@@ -11,7 +11,52 @@ npm install
 npm run dev -- --port 3000
 ```
 
-Open http://localhost:3000. Node 18.18+ is supported; Node 22 LTS is recommended for new environments. WebGPU needs a secure context (HTTPS or localhost). Three.js automatically uses its WebGL2 backend when WebGPU is unavailable.
+Open http://localhost:3000. Node 18.18+ runs the app; Node 22 LTS is recommended and is required for Cloudflare's Wrangler CLI. WebGPU needs a secure context (HTTPS or localhost). Three.js automatically uses its WebGL2 backend when WebGPU is unavailable.
+
+To preview the production build, run `npm run build`, then `npm start`, and open http://localhost:3000.
+
+## Deploy
+
+The city is a fully client-side page, so `npm run build` writes a static site to `out/`. No Node.js server runs in production.
+
+### Cloudflare
+
+One-time setup:
+
+1. In the Cloudflare dashboard, create an API token from the **Edit Cloudflare Workers** template, and copy your **Account ID** from the Workers & Pages overview.
+2. For automatic deploys, add both as GitHub repository secrets named `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` under Settings, Secrets and variables, Actions.
+
+After that, every push to `main` runs the typecheck, unit tests, build, and deploy in `.github/workflows/deploy-cloudflare.yml`. **Run workflow** on the Actions tab redeploys by hand. Without the secrets, the workflow still checks and builds, then skips the deploy with a notice.
+
+To deploy from your own machine with Node 22:
+
+```sh
+npx wrangler login
+npm run deploy:cloudflare
+```
+
+The site is served by a Workers static-assets project configured in `wrangler.jsonc`, at `https://fpt-token-town.<your-subdomain>.workers.dev`. Add a custom domain under the Worker's Domains & Routes settings. `public/_headers` sets long-lived caching for hashed assets and baseline security headers.
+
+Cloudflare Pages also works: connect the repository with build command `npm run build` and output directory `out`.
+
+### Docker, on any machine
+
+```sh
+docker compose up -d --build
+```
+
+Open http://localhost:8080. Without Compose:
+
+```sh
+docker build -t fpt-token-town .
+docker run -d -p 8080:8080 --restart unless-stopped fpt-token-town
+```
+
+The image builds the export with Node 22 and serves it from unprivileged nginx on port 8080. `deploy/nginx.conf` adds gzip, one-year caching for hashed assets, no-cache HTML, and the same security headers. Browsers only allow WebGPU over HTTPS or on localhost, so a plain-HTTP address on a network falls back to WebGL2. Put the container behind an HTTPS reverse proxy or a Cloudflare Tunnel to keep WebGPU.
+
+### Any static host
+
+Upload the contents of `out/`, serve `404.html` for missing paths, and cache `/_next/static/` long-term.
 
 ## Locked City Tour
 

@@ -5,9 +5,10 @@
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0",
+    "start": "npx --yes serve@14 out --listen 3000",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "deploy:cloudflare": "npm run build && npx --yes wrangler@4 deploy"
   },
   "dependencies": {
     "gsap": "^3.14.0",
