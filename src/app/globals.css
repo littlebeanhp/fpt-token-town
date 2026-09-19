@@ -151,11 +151,28 @@ button svg {
   width: 100%;
   height: 100%;
   display: block;
-  touch-action: none;
-  cursor: grab;
+  /* The camera is locked: vertical drags scroll the page, horizontal swipes change stops. */
+  touch-action: pan-y;
 }
 .scene-labels {
   pointer-events: none;
+}
+/* Soft paper-toned scrim that keeps the overlay text readable over a busy city. */
+.scene-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, #f3f6f2d9 0%, #f3f6f28c 18%, #f3f6f200 38%),
+    linear-gradient(0deg, #f3f6f2b3 0%, #f3f6f200 16%),
+    linear-gradient(180deg, #f3f6f266 0%, #f3f6f200 14%);
+  transition: opacity 1s;
+}
+.night .scene-scrim {
+  background:
+    linear-gradient(90deg, #102329d9 0%, #1023298c 18%, #10232900 38%),
+    linear-gradient(0deg, #102329b3 0%, #10232900 16%),
+    linear-gradient(180deg, #10232966 0%, #10232900 14%);
 }
 .factory-label {
   position: absolute;
@@ -237,28 +254,84 @@ h1 > span {
   background: #9fb2a5;
   margin: 21px 0 11px;
 }
-.intro-foot {
-  font-size: 10px;
-  color: #809185;
+.tour-button {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 13px;
+  border-radius: 4px;
+  background: #f9fcf7d9;
+  border: 1px solid #fff9;
+  box-shadow: 0 2px 10px #273b3408;
+  color: #2b473c;
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s;
 }
-.scene-controls {
+.tour-button:hover {
+  background: #fff;
+}
+.tour-nav {
   position: absolute;
   right: 4%;
   top: 31px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.day-toggle {
-  padding: 4px;
-  background: #f9fcf7cc;
-  border: 1px solid #fff8;
-  border-radius: 6px;
+.tour-step,
+.home-button {
+  height: 40px;
   display: flex;
-  gap: 3px;
-  box-shadow: 0 2px 10px #273b3406;
+  align-items: center;
+  gap: 9px;
+  padding: 0 15px;
+  border-radius: 6px;
+  color: #2b473c;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f9fcf7d6;
+  border: 1px solid #fff9;
+  box-shadow: 0 2px 12px #273b3410;
+  backdrop-filter: blur(10px);
+  transition: background 0.2s;
 }
-.day-toggle button,
+.tour-step:hover:not(:disabled),
+.home-button:hover:not(:disabled) {
+  background: #fff;
+}
+.home-button {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+.home-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.tour-count {
+  min-width: 58px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: #f9fcf7b3;
+  border: 1px solid #fff9;
+  backdrop-filter: blur(10px);
+  font-size: 12px;
+  color: #6f8478;
+  font-variant-numeric: tabular-nums;
+}
+.tour-count strong {
+  color: #2b473c;
+  font-weight: 650;
+}
 .icon-button {
   height: 32px;
   width: 32px;
@@ -268,16 +341,74 @@ h1 > span {
   background: transparent;
   color: #7e8a83;
 }
-.day-toggle button.active {
+.clock {
+  position: absolute;
+  right: 4%;
+  bottom: 44px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 5px 4px 12px;
+  border-radius: 6px;
+  background: #f9fcf7d6;
+  border: 1px solid #fff9;
+  box-shadow: 0 2px 12px #273b3410;
+  backdrop-filter: blur(10px);
+  color: #2b473c;
+}
+.clock-readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 118px;
+  color: #d46a29;
+}
+.clock-readout strong {
+  font-size: 15px;
+  font-weight: 650;
+  color: #2b473c;
+  font-variant-numeric: tabular-nums;
+}
+.clock-phase {
+  font-size: 8px;
+  font-weight: 650;
+  text-transform: uppercase;
+  color: #7a8980;
+}
+.clock-divider {
+  width: 1px;
+  height: 22px;
+  background: #dce3df;
+}
+.clock-presets {
+  display: flex;
+  gap: 2px;
+}
+.clock button {
+  height: 32px;
+  min-width: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: transparent;
+  color: #7e8a83;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.clock button:hover:not(:disabled) {
+  color: #2b473c;
+}
+.clock-presets button.active {
   background: #fff;
   color: #2b473c;
   box-shadow: 0 2px 5px #243d3d12;
 }
-.reset-button {
-  background: #f9fcf7cc;
-  border: 1px solid #fff8;
-  width: 39px;
-  height: 41px;
+.clock-play {
+  color: #2b473c !important;
+}
+.clock-speed {
+  width: 38px;
 }
 .scene-bottom {
   position: absolute;
@@ -288,8 +419,7 @@ h1 > span {
   justify-content: space-between;
   pointer-events: none;
 }
-.city-status,
-.simulation-label {
+.city-status {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -304,9 +434,6 @@ h1 > span {
 .status-separator {
   color: #a2b3a8;
   margin: 0 4px;
-}
-.simulation-label {
-  font-size: 8px;
 }
 .flow-mark {
   height: 3px;
@@ -348,7 +475,7 @@ h1 > span {
 }
 .model-list {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
 }
 .model-nav {
@@ -570,12 +697,10 @@ footer > span:first-child {
   color: #d6e8de;
 }
 .night .intro p,
-.night .intro-foot,
 .night .eyebrow {
   color: #9bb9ab;
 }
-.night .city-status,
-.night .simulation-label {
+.night .city-status {
   color: #a3bdae;
 }
 .night .model-panel {
@@ -598,6 +723,42 @@ footer > span:first-child {
 .night .factory-label small {
   border-color: #43625f;
   color: #9bbab0;
+}
+.night .tour-step,
+.night .home-button,
+.night .tour-count,
+.night .clock,
+.night .tour-button {
+  background: #1b353ce0;
+  border-color: #3a5a5b;
+  color: #dbebe3;
+}
+.night .tour-step:hover:not(:disabled),
+.night .home-button:hover:not(:disabled),
+.night .tour-button:hover {
+  background: #24484d;
+}
+.night .tour-count,
+.night .clock-phase {
+  color: #9bbab0;
+}
+.night .tour-count strong,
+.night .clock-readout strong,
+.night .clock-play {
+  color: #e1ebe5 !important;
+}
+.night .clock-readout {
+  color: #ffa85c;
+}
+.night .clock-divider {
+  background: #365057;
+}
+.night .clock button {
+  color: #9bbab0;
+}
+.night .clock-presets button.active {
+  background: #2c555a;
+  color: #fff;
 }
 .api-dialog {
   padding: 27px;
@@ -779,25 +940,62 @@ footer > span:first-child {
   .intro p {
     font-size: 11px;
   }
-  .intro-rule,
-  .intro-foot {
+  .intro-rule {
     display: none;
   }
-  .scene-controls {
+  .tour-nav {
     right: 5%;
-    top: 24px;
+    top: 20px;
     gap: 5px;
   }
-  .day-toggle {
-    padding: 3px;
+  .tour-step,
+  .home-button {
+    height: 34px;
+    padding: 0 9px;
   }
-  .day-toggle button {
+  .home-button {
+    width: 34px;
+    padding: 0;
+  }
+  .tour-step span {
+    display: none;
+  }
+  .tour-count {
+    min-width: 42px;
+    height: 34px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+  .tour-button {
+    font-size: 10px;
+    padding: 7px 10px;
+  }
+  .clock {
+    right: 5%;
+    bottom: 40px;
+    gap: 3px;
+    padding: 3px 3px 3px 9px;
+  }
+  .clock-readout {
+    min-width: 0;
+    gap: 5px;
+  }
+  .clock-readout strong {
+    font-size: 13px;
+  }
+  .clock-phase {
+    display: none;
+  }
+  .clock button {
     height: 28px;
-    width: 27px;
+    min-width: 27px;
   }
-  .reset-button {
-    height: 36px;
-    width: 31px;
+  .clock-speed {
+    width: 32px;
+  }
+  .is-focused .clock {
+    bottom: auto;
+    top: 336px;
   }
   .factory-label {
     font-size: 8px;
@@ -819,10 +1017,6 @@ footer > span:first-child {
     font-size: 7px;
     gap: 5px;
   }
-  .simulation-label {
-    font-size: 6px;
-    gap: 5px;
-  }
   .status-separator {
     margin: 0;
   }
@@ -838,7 +1032,7 @@ footer > span:first-child {
     gap: 4px;
   }
   .model-list {
-    grid-template-columns: repeat(6, 145px);
+    grid-template-columns: repeat(7, 145px);
     overflow-x: auto;
     padding-bottom: 8px;
     scroll-snap-type: x mandatory;
@@ -948,6 +1142,7 @@ footer > span:first-child {
   top: 0;
   left: 0;
   visibility: hidden;
+  pointer-events: auto;
   font-size: 9px;
   font-weight: 700;
   color: #d46a29;

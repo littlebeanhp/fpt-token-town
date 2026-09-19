@@ -12,7 +12,7 @@ import {
 import { models } from '../src/data/models';
 import { PrimitiveFactoryAsset } from '../src/experience/loaders/PrimitiveFactoryAsset';
 import { AssetBase } from '../src/experience/loaders/AssetBase';
-import { CameraRig } from '../src/experience/camera/CameraRig';
+import { CameraRig, createShot } from '../src/experience/camera/CameraRig';
 import type { AnchorName } from '../src/types/factory';
 
 const anchors: AnchorName[] = [
@@ -114,36 +114,31 @@ test('hidden collider nodes remain raycastable', () => {
   (mesh.material as MeshStandardMaterial).dispose();
 });
 
-test('camera clamps overview and focus orbits, disables pan, and restores overview', () => {
+test('locked camera frames a shot, turns corner shots inward, and keeps no orbit controls', () => {
   Object.defineProperty(globalThis, 'matchMedia', {
     value: () => ({ matches: true }),
     configurable: true,
   });
-  const document = new EventTarget();
-  const canvas = Object.assign(new EventTarget(), {
-    style: {},
-    dataset: {},
-    ownerDocument: document,
-    getRootNode: () => document,
-  }) as unknown as HTMLCanvasElement;
+  const canvas = { dataset: {} } as unknown as HTMLCanvasElement;
   const rig = new CameraRig(canvas);
   rig.resize(1440, 700);
-  assert.equal(rig.controls.enablePan, false);
-  const degrees = (radians: number) => (radians * 180) / Math.PI;
-  assert.ok(Math.abs(degrees(rig.controls.maxAzimuthAngle) - 35) < 0.001);
-  rig.camera.position.set(-90, 1, -90);
-  rig.controls.update();
-  assert.ok(degrees(rig.controls.getAzimuthalAngle()) >= -35.001);
-  assert.ok(degrees(rig.controls.getPolarAngle()) >= 42.99);
-  const factory = new PrimitiveFactoryAsset(models[1]);
-  factory.root.updateMatrixWorld(true);
-  rig.focus(factory, true);
-  assert.ok(
-    Math.abs(degrees(rig.controls.maxAzimuthAngle - rig.controls.minAzimuthAngle) - 24) < 0.001,
-  );
-  assert.ok(rig.controls.minDistance > 0);
-  rig.focus(null, true);
-  assert.ok(Math.abs(degrees(rig.controls.maxAzimuthAngle) - 35) < 0.001);
-  factory.dispose();
+  assert.equal('controls' in rig, false, 'No user orbit, pan, or zoom');
+  const direction = new Vector3();
+  for (const model of models) {
+    const factory = new PrimitiveFactoryAsset(model);
+    factory.root.updateMatrixWorld(true);
+    const shot = createShot(model.position, factory.getAnchor('CameraTarget', new Vector3()).y, 3);
+    rig.focus(shot, true);
+    assert.equal(canvas.dataset.transition, 'idle');
+    rig.camera.getWorldDirection(direction);
+    const toTarget = shot.target.clone().sub(rig.camera.position).normalize();
+    assert.ok(direction.dot(toTarget) > 0.9999, `${model.id} camera looks at its block`);
+    // Side columns look back toward the city centre rather than out past the edge.
+    if (shot.side !== 0)
+      assert.ok(Math.sign(direction.x) === -shot.side, `${model.id} faces inward`);
+    const ray = new Raycaster(rig.camera.position, toTarget);
+    assert.ok(ray.intersectObjects(factory.colliders, false).length > 0, `${model.id} visible`);
+    factory.dispose();
+  }
   rig.dispose();
 });

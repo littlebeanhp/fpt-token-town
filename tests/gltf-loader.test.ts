@@ -61,7 +61,10 @@ test('GLTFLoader reads a binary asset, preserves authored anchors, and generates
     assetUrl: `data:application/octet-stream;base64,${glb.toString('base64')}`,
   });
   asset.root.updateMatrixWorld(true);
-  assert.deepEqual(asset.getAnchor('CameraAnchor', new Vector3()).toArray(), [-3, 6, 4]);
+  // The authored anchor (5, 6, 9) is local to the model and follows it into the city.
+  const [x, y, z] = models[0].position;
+  const anchor = asset.getAnchor('CameraAnchor', new Vector3());
+  assert.ok(anchor.distanceTo(new Vector3(x + 5, y + 6, z + 9)) < 1e-9);
   assert.ok(asset.getAnchor('UIAnchor', new Vector3()).y > 3);
   assert.equal(asset.colliders.length, 1);
   assert.equal(asset.root.getObjectByName('COLLIDER')!.visible, false);
