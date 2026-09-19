@@ -12,8 +12,8 @@ export const CITY_BLOCKS = 9;
 /** Half-width of the built-up city. Everything a locked shot can see lies inside it. */
 export const CITY_EXTENT = (CITY_BLOCKS + 0.5) * BLOCK_PITCH;
 /** The central 3x3 blocks hold the core, the six districts, and two parks. */
-export const DISTRICT_RANGE = 1;
-export const PARK_BLOCKS: readonly [number, number][] = [
+const DISTRICT_RANGE = 1;
+const PARK_BLOCKS: readonly [number, number][] = [
   [-1, 0],
   [1, 0],
 ];

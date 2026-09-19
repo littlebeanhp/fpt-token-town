@@ -1,8 +1,6 @@
 import { Color, MathUtils, Vector3 } from 'three/webgpu';
 import { CITY_MINUTES_PER_SECOND, DEFAULT_SPEED, START_HOURS, wrapHours } from '@/data/clock';
 
-export { PRESET_HOURS, formatClock, hoursUntil, phaseAt, wrapHours } from '@/data/clock';
-
 /** Accelerated city time. It only advances when the render loop feeds it frame deltas. */
 export class CityClock {
   hours: number;

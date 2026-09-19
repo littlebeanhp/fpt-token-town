@@ -5,7 +5,7 @@ import { AssetBase } from '../loaders/AssetBase';
 
 /** The central FPT token router. It is the default camera stop and shares the asset contract. */
 export class Core extends AssetBase {
-  readonly rings: Mesh[] = [];
+  private readonly rings: Mesh[] = [];
   private resources = new Resources();
   constructor(definition: StopDefinition) {
     super(new Group());

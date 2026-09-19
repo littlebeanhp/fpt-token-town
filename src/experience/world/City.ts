@@ -59,7 +59,6 @@ export class City {
   private litWindows: MeshStandardMaterial;
   private poolStrength = uniform(0);
   private poolMaterial: MeshBasicNodeMaterial;
-  private ground: Mesh;
 
   constructor() {
     const random = createRandom(20260919);
@@ -86,11 +85,11 @@ export class City {
     this.poolMaterial.opacityNode = falloff.mul(falloff).mul(this.poolStrength);
     this.poolMaterial.fog = false;
 
-    this.ground = new Mesh(this.plane, r.material('#7f9295'));
-    this.ground.rotation.x = -Math.PI / 2;
-    this.ground.scale.set(1400, 1400, 1);
-    this.ground.receiveShadow = true;
-    this.root.add(this.ground);
+    const ground = new Mesh(this.plane, r.material('#7f9295'));
+    ground.rotation.x = -Math.PI / 2;
+    ground.scale.set(1400, 1400, 1);
+    ground.receiveShadow = true;
+    this.root.add(ground);
 
     this.buildLots(random);
     this.buildFiller(random);

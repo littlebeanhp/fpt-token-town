@@ -2,10 +2,10 @@ import { MathUtils, PerspectiveCamera, Spherical, Vector3 } from 'three/webgpu';
 import { gsap } from 'gsap';
 import { BLOCK_PITCH, blockIndex } from '../world/layout';
 
-export const SHOT_FOV = 30;
+const SHOT_FOV = 30;
 /** Minimum framed radius: the building plus its front plaza and visitor queue. */
-export const DISTRICT_RADIUS = 4.4;
-export const SHOT_POLAR = MathUtils.degToRad(52);
+const DISTRICT_RADIUS = 4.4;
+const SHOT_POLAR = MathUtils.degToRad(52);
 /** Camera sits front-right of a stop; the left column mirrors it so it still looks inward. */
 const SHOT_AZIMUTH = MathUtils.degToRad(28);
 /** How much of the frame the district's radius fills on its tighter axis. */
@@ -21,7 +21,7 @@ export interface Shot {
   side: number;
 }
 
-export const sideForX = (x: number) => (x < -1 ? -1 : x > 1 ? 1 : 0);
+const sideForX = (x: number) => (x < -1 ? -1 : x > 1 ? 1 : 0);
 
 /**
  * Shot for a building at `position`. It frames the whole block (building, plaza, and queue)
@@ -44,7 +44,7 @@ export function createShot(
  * Lens shift that keeps the subject clear of the overlays: right of the desktop panel, and
  * below the hero text on tall phone canvases.
  */
-export function framing(width: number, height: number) {
+function framing(width: number, height: number) {
   const shiftX = width > 900 ? Math.min(width * 0.1, 170) : 0;
   const shiftY = width <= 700 && height > width * 1.25 ? height * 0.12 : 0;
   const safeHeight = Math.max(height, 1);
@@ -58,13 +58,13 @@ export function framing(width: number, height: number) {
     },
   };
 }
-export type Fit = ReturnType<typeof framing>['fit'];
+type Fit = ReturnType<typeof framing>['fit'];
 
 /**
  * Art-directed orbit for a stop. Corner and side districts turn the camera toward the city
  * centre, so the far part of every frame looks across the city instead of past its edge.
  */
-export function shotSpherical(shot: Shot, fit: Fit, out: Spherical) {
+function shotSpherical(shot: Shot, fit: Fit, out: Spherical) {
   const halfTangent = Math.tan(MathUtils.degToRad(SHOT_FOV / 2));
   const halfVertical = Math.atan(halfTangent * fit.y);
   const halfHorizontal = Math.atan(halfTangent * fit.x);
@@ -75,7 +75,7 @@ export function shotSpherical(shot: Shot, fit: Fit, out: Spherical) {
 }
 
 /** Camera pose part-way between two stops, with a gentle lift that reveals the route. */
-export function interpolatePose(
+function interpolatePose(
   fromTarget: Vector3,
   from: Spherical,
   toTarget: Vector3,
