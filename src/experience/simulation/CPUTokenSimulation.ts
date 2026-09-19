@@ -1,16 +1,27 @@
 import {
   CatmullRomCurve3,
+  Color,
   DynamicDrawUsage,
   Group,
   InstancedMesh,
   Mesh,
+  MeshStandardMaterial,
   Object3D,
   TubeGeometry,
   Vector3,
 } from 'three/webgpu';
+import type { FactoryId } from '@/types/factory';
 import { Resources } from '../core/Resources';
+import { tintForEmphasis } from '../core/emphasis';
 import type { Factory } from '../world/Factory';
 import type { TokenSimulation } from './TokenSimulation';
+
+interface LaneStyle {
+  tube: MeshStandardMaterial;
+  cubes: MeshStandardMaterial;
+  base: Color;
+  emphasis: number;
+}
 
 export class CPUTokenSimulation implements TokenSimulation {
   readonly root = new Group();
@@ -23,33 +34,41 @@ export class CPUTokenSimulation implements TokenSimulation {
     direction: number;
     speed: number;
   }[] = [];
+  private styles = new Map<FactoryId, LaneStyle>();
   private tubes: TubeGeometry[] = [];
-  private readonly count = 12;
-  constructor(factories: Factory[]) {
+  private night = 0;
+  private readonly count = 14;
+  constructor(factories: Factory[], origin: Vector3) {
     for (const factory of factories) {
+      const style: LaneStyle = {
+        tube: this.resources.material(factory.model.color),
+        cubes: this.resources.material(factory.model.color, true),
+        base: new Color(factory.model.color),
+        emphasis: 1,
+      };
+      this.styles.set(factory.model.id, style);
       for (const direction of [1, -1]) {
         const end = factory.asset.getAnchor(
           direction === 1 ? 'TokenInput' : 'TokenOutput',
           new Vector3(),
         );
-        const start = end.clone().normalize().multiplyScalar(2.5);
+        const heading = end.clone().sub(origin).setY(0).normalize();
+        const start = origin.clone().addScaledVector(heading, 2.7);
         start.y = 0.8;
+        // Lanes arc over the streets; the in and out lanes separate sideways.
         const middle = start.clone().lerp(end, 0.5);
-        middle.y = 0.45;
-        middle.x += direction * 0.5;
+        middle.y = 0.8 + start.distanceTo(end) * 0.09;
+        middle.x += -heading.z * direction * 0.45;
+        middle.z += heading.x * direction * 0.45;
         const curve = new CatmullRomCurve3([start, middle, end]);
-        const geometry = new TubeGeometry(curve, 32, 0.025, 4, false);
+        const geometry = new TubeGeometry(curve, 48, 0.025, 4, false);
         this.tubes.push(geometry);
-        this.root.add(new Mesh(geometry, this.resources.material(factory.model.color)));
-        const cubes = new InstancedMesh(
-          this.resources.cube,
-          this.resources.material(factory.model.color, true),
-          this.count,
-        );
+        this.root.add(new Mesh(geometry, style.tube));
+        const cubes = new InstancedMesh(this.resources.cube, style.cubes, this.count);
         cubes.instanceMatrix.setUsage(DynamicDrawUsage);
         cubes.frustumCulled = false;
         this.root.add(cubes);
-        this.lanes.push({ curve, cubes, direction, speed: 1.35 / curve.getLength() });
+        this.lanes.push({ curve, cubes, direction, speed: 1.6 / curve.getLength() });
       }
     }
     this.dummy.scale.setScalar(0.115);
@@ -67,12 +86,23 @@ export class CPUTokenSimulation implements TokenSimulation {
       lane.cubes.instanceMatrix.needsUpdate = true;
     }
   }
+  /** Lanes follow their district's focus: background routes turn gray and dim. */
+  setEmphasis(id: FactoryId, value: number) {
+    const style = this.styles.get(id);
+    if (!style) return;
+    style.emphasis = value;
+    const { r, g, b } = style.base;
+    tintForEmphasis(r, g, b, value, style.tube.color);
+    tintForEmphasis(r, g, b, value, style.cubes.color);
+    tintForEmphasis(r, g, b, value, style.cubes.emissive);
+    this.applyIntensity(style);
+  }
   setNight(value: number) {
-    for (const lane of this.lanes) {
-      const material = lane.cubes.material;
-      if (!Array.isArray(material) && 'emissiveIntensity' in material)
-        material.emissiveIntensity = 0.8 + value * 3;
-    }
+    this.night = value;
+    this.styles.forEach((style) => this.applyIntensity(style));
+  }
+  private applyIntensity(style: LaneStyle) {
+    style.cubes.emissiveIntensity = (0.8 + this.night * 3) * (0.3 + style.emphasis * 0.7);
   }
   dispose() {
     this.lanes.forEach((lane) => lane.cubes.dispose());

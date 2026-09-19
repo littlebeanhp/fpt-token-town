@@ -3,49 +3,91 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ArrowDownLeft,
   ArrowLeft,
+  ArrowRight,
   ArrowUpRight,
   Box,
   Braces,
   Check,
   ChevronRight,
   Cpu,
+  House,
   Layers3,
   Moon,
   Network,
-  RotateCcw,
+  Pause,
+  Play,
   Sun,
+  Sunrise,
+  Sunset,
   Terminal,
+  Waypoints,
   Zap,
 } from 'lucide-react';
-import { models } from '@/data/models';
-import type { FactoryId } from '@/types/factory';
+import { models, stops } from '@/data/models';
+import { DEFAULT_SPEED, START_HOURS, formatClock, nextSpeed, phaseAt } from '@/data/clock';
+import type { ClockState, DayPhase, DayPreset, StopId } from '@/types/factory';
 import type { Experience } from '@/experience/core/Experience';
 import { ApiDialog } from './ApiDialog';
 
-const icons = [Zap, Braces, Box, Layers3, Network, Cpu];
+const icons = {
+  core: Waypoints,
+  deepseek: Zap,
+  glm: Braces,
+  qwen: Box,
+  minimax: Layers3,
+  llama: Network,
+  'gpt-oss': Cpu,
+};
+const phaseIcons: Record<DayPhase, typeof Sun> = {
+  dawn: Sunrise,
+  day: Sun,
+  dusk: Sunset,
+  night: Moon,
+};
+const presets: { id: DayPreset; label: string; Icon: typeof Sun }[] = [
+  { id: 'day', label: 'Day mode', Icon: Sun },
+  { id: 'dusk', label: 'Dusk mode', Icon: Sunset },
+  { id: 'night', label: 'Night mode', Icon: Moon },
+];
+const initialClock: ClockState = {
+  hours: START_HOURS,
+  phase: phaseAt(START_HOURS),
+  night: false,
+  paused: false,
+  speed: DEFAULT_SPEED,
+};
+const pad = (value: number) => String(value).padStart(2, '0');
 
 export function TokenTown() {
   const host = useRef<HTMLDivElement>(null),
     labels = useRef<HTMLDivElement>(null),
     experience = useRef<Experience | null>(null);
-  const [selected, setSelected] = useState<FactoryId | null>(null);
-  const [night, setNight] = useState(false),
-    [ready, setReady] = useState(false),
+  const [selected, setSelected] = useState<StopId>('core');
+  const [clock, setClock] = useState<ClockState>(initialClock);
+  const [ready, setReady] = useState(false),
     [error, setError] = useState('');
   const [api, setApi] = useState(false),
     [retry, setRetry] = useState(0);
+  const stopIndex = Math.max(
+    stops.findIndex((stop) => stop.id === selected),
+    0,
+  );
+  const stop = stops[stopIndex];
   const model = models.find((item) => item.id === selected);
+  const PhaseIcon = phaseIcons[clock.phase];
+
   useEffect(() => {
     let cancelled = false;
     let instance: Experience | undefined;
     setReady(false);
-    setSelected(null);
+    setSelected('core');
     setError('');
     import('@/experience/core/Experience')
       .then(({ Experience }) => {
         if (cancelled || !host.current || !labels.current) return;
         instance = new Experience(host.current, labels.current, {
           onSelect: setSelected,
+          onClock: setClock,
           onReady: () => setReady(true),
           onError: (message) => {
             setReady(false);
@@ -65,19 +107,26 @@ export function TokenTown() {
     };
   }, [retry]);
   useEffect(() => {
-    experience.current?.setNight(night);
-  }, [night, ready]);
-  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !api) experience.current?.select(null);
+      if (api || event.altKey || event.ctrlKey || event.metaKey) return;
+      if (
+        (event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]')
+      )
+        return;
+      if (event.key === 'ArrowRight') experience.current?.step(1);
+      else if (event.key === 'ArrowLeft') experience.current?.step(-1);
+      else if (event.key === 'Escape' || event.key === 'Home') experience.current?.select('core');
+      else return;
+      event.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [api]);
-  const select = (id: FactoryId | null) => experience.current?.select(id);
+  const select = (id: StopId) => experience.current?.select(id);
+  const step = (direction: 1 | -1) => experience.current?.step(direction);
 
   return (
-    <main className={`town ${night ? 'night' : ''} ${selected ? 'is-focused' : ''}`}>
+    <main className={`town ${clock.night ? 'night' : ''} ${model ? 'is-focused' : ''}`}>
       <header className="topbar">
         <a href="/" className="brand" aria-label="FPT AI Token Factory home">
           <span className="fpt-logo">
@@ -100,17 +149,23 @@ export function TokenTown() {
 
       <section className="city-stage" aria-label="AI factory city">
         <div className="scene-host" ref={host} />
-        <div className="scene-labels" ref={labels} aria-hidden={!!selected || !ready}>
-          <span className="core-label" data-core>
+        <div className="scene-scrim" aria-hidden />
+        <div className="scene-labels" ref={labels} aria-hidden={!ready}>
+          <button
+            className="core-label"
+            data-stop="core"
+            onClick={() => select('core')}
+            tabIndex={selected === 'core' || !ready ? -1 : 0}
+          >
             FPT CORE <span>/ TOKEN ROUTER</span>
-          </span>
+          </button>
           {models.map((item, index) => (
             <button
               key={item.id}
-              data-model={item.id}
+              data-stop={item.id}
               className="factory-label"
               onClick={() => select(item.id)}
-              tabIndex={selected || !ready ? -1 : 0}
+              tabIndex={selected === item.id || !ready ? -1 : 0}
               style={{ '--model-color': item.color } as React.CSSProperties}
             >
               <span className="label-dot" />
@@ -121,8 +176,8 @@ export function TokenTown() {
           ))}
         </div>
 
-        {!selected && (
-          <div className="intro">
+        {!model && (
+          <div className="intro" data-overlay>
             <div className="eyebrow">
               <span className="tiny-cross">+</span> INTELLIGENCE, IN MOTION
             </div>
@@ -137,46 +192,52 @@ export function TokenTown() {
               One powerful connection.
             </p>
             <div className="intro-rule" />
-            <span className="intro-foot">Built for what comes next.</span>
+            <button className="tour-button" disabled={!ready} onClick={() => step(1)}>
+              Tour the districts <ArrowRight size={14} />
+            </button>
           </div>
         )}
 
-        <div className="scene-controls">
-          <div className="day-toggle" aria-label="City lighting">
-            <button
-              className={!night ? 'active' : ''}
-              aria-label="Day mode"
-              aria-pressed={!night}
-              title="Day mode"
-              onClick={() => setNight(false)}
-            >
-              <Sun size={17} />
-            </button>
-            <button
-              className={night ? 'active' : ''}
-              aria-label="Night mode"
-              aria-pressed={night}
-              title="Night mode"
-              onClick={() => setNight(true)}
-            >
-              <Moon size={16} />
-            </button>
-          </div>
+        <nav className="tour-nav" aria-label="City tour" data-overlay>
           <button
-            className="icon-button reset-button"
-            title="Reset view"
-            aria-label="Reset view"
+            className="tour-step"
+            aria-label="Previous stop"
             disabled={!ready}
-            onClick={() => select(null)}
+            onClick={() => step(-1)}
           >
-            <RotateCcw size={17} />
+            <ArrowLeft size={16} /> <span>Previous</span>
           </button>
-        </div>
+          <span className="tour-count" aria-label={`Stop ${stopIndex + 1} of ${stops.length}`}>
+            <strong>{stopIndex + 1}</strong> / {stops.length}
+          </span>
+          <button
+            className="tour-step"
+            aria-label="Next stop"
+            disabled={!ready}
+            onClick={() => step(1)}
+          >
+            <span>Next</span> <ArrowRight size={16} />
+          </button>
+          <button
+            className="home-button"
+            title="Return to FPT Core"
+            aria-label="Return to FPT Core"
+            disabled={!ready || selected === 'core'}
+            onClick={() => select('core')}
+          >
+            <House size={16} />
+          </button>
+        </nav>
 
         {model && (
-          <aside className="model-panel" key={model.id} aria-label={`${model.name} details`}>
-            <button className="back-button" onClick={() => select(null)}>
-              <ArrowLeft size={15} /> All factories
+          <aside
+            className="model-panel"
+            key={model.id}
+            aria-label={`${model.name} details`}
+            data-overlay
+          >
+            <button className="back-button" onClick={() => select('core')}>
+              <ArrowLeft size={15} /> FPT Core
             </button>
             <div className="model-category" style={{ color: model.color }}>
               <span className="status-dot" />
@@ -209,6 +270,49 @@ export function TokenTown() {
           </aside>
         )}
 
+        <div className="clock" role="group" aria-label="City time-lapse" data-overlay>
+          <span className="clock-readout" title="City time">
+            <PhaseIcon size={15} />
+            <strong>{formatClock(clock.hours)}</strong>
+            <span className="clock-phase">{clock.phase}</span>
+          </span>
+          <span className="clock-divider" />
+          <div className="clock-presets">
+            {presets.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                className={clock.phase === id ? 'active' : ''}
+                aria-label={label}
+                aria-pressed={clock.phase === id}
+                title={label}
+                disabled={!ready}
+                onClick={() => experience.current?.jumpTo(id)}
+              >
+                <Icon size={15} />
+              </button>
+            ))}
+          </div>
+          <span className="clock-divider" />
+          <button
+            className="clock-play"
+            aria-label={clock.paused ? 'Play time-lapse' : 'Pause time-lapse'}
+            title={clock.paused ? 'Play time-lapse' : 'Pause time-lapse'}
+            disabled={!ready}
+            onClick={() => experience.current?.setClockPaused(!clock.paused)}
+          >
+            {clock.paused ? <Play size={15} /> : <Pause size={15} />}
+          </button>
+          <button
+            className="clock-speed"
+            aria-label={`Time-lapse speed ${clock.speed}x`}
+            title="Change time-lapse speed"
+            disabled={!ready}
+            onClick={() => experience.current?.setClockSpeed(nextSpeed(clock.speed))}
+          >
+            {clock.speed}x
+          </button>
+        </div>
+
         {!ready && (
           <div className="loading-screen" role="status">
             {error ? (
@@ -231,15 +335,14 @@ export function TokenTown() {
         )}
 
         <div className="scene-bottom">
-          <div className="city-status">
+          <div className="city-status" data-overlay>
             <span className="status-dot" />
             <span>{ready ? 'CITY ONLINE' : 'CONNECTING'}</span>
             <span className="status-separator">/</span>
             <span>06 MODEL DISTRICTS</span>
+            <span className="status-separator">/</span>
+            <span className="flow-mark" /> <span>SIMULATED TOKEN TRAFFIC</span>
           </div>
-          <span className="simulation-label">
-            <span className="flow-mark" /> SIMULATED TOKEN TRAFFIC
-          </span>
         </div>
       </section>
 
@@ -250,9 +353,11 @@ export function TokenTown() {
             Six specialists. One ecosystem. <ArrowDownLeft size={14} />
           </span>
         </div>
-        <nav className="model-list" aria-label="Select a model factory">
-          {models.map((item, index) => {
-            const Icon = icons[index];
+        <nav className="model-list" aria-label="Select a city stop">
+          {stops.map((item) => {
+            const Icon = icons[item.id];
+            const number =
+              item.id === 'core' ? 'HOME' : pad(models.findIndex((m) => m.id === item.id) + 1);
             return (
               <button
                 className={`model-nav ${selected === item.id ? 'selected' : ''}`}
@@ -264,7 +369,7 @@ export function TokenTown() {
               >
                 <div className="nav-top">
                   <Icon size={19} strokeWidth={1.7} />
-                  <span>0{index + 1}</span>
+                  <span>{number}</span>
                   <ArrowUpRight className="nav-arrow" size={15} />
                 </div>
                 <strong>{item.name}</strong>
@@ -285,7 +390,7 @@ export function TokenTown() {
         </span>
       </footer>
       <div className="sr-only" aria-live="polite">
-        {model ? `${model.name} selected` : 'City overview'}
+        {`${stop.name} in focus, stop ${stopIndex + 1} of ${stops.length}`}
       </div>
       {api && <ApiDialog model={model} onClose={() => setApi(false)} />}
     </main>

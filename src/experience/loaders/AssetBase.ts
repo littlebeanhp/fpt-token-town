@@ -1,13 +1,18 @@
 import { Box3, Color, Group, Mesh, MeshStandardMaterial, Object3D, Vector3 } from 'three/webgpu';
 import type { AnchorName, FactoryAsset } from '@/types/factory';
+import { tintForEmphasis } from '../core/emphasis';
 
 export abstract class AssetBase implements FactoryAsset {
   readonly colliders: Object3D[] = [];
   protected anchors = new Map<AnchorName, Object3D>();
-  protected surfaces: { material: MeshStandardMaterial; color: Color; emission: number }[] = [];
+  protected surfaces: {
+    material: MeshStandardMaterial;
+    color: Color;
+    emissive: Color;
+    emission: number;
+  }[] = [];
   protected emphasis = 1;
   protected night = 0;
-  private grayColor = new Color();
   constructor(readonly root: Group) {}
 
   protected prepare() {
@@ -53,6 +58,7 @@ export abstract class AssetBase implements FactoryAsset {
           this.surfaces.push({
             material,
             color: material.color.clone(),
+            emissive: material.emissive.clone(),
             emission: material.emissiveIntensity,
           });
         }
@@ -71,14 +77,12 @@ export abstract class AssetBase implements FactoryAsset {
     this.applySurfaces();
   }
   private applySurfaces() {
-    for (const surface of this.surfaces) {
-      surface.material.color.copy(surface.color);
-      const gray = surface.color.r * 0.2126 + surface.color.g * 0.7152 + surface.color.b * 0.0722;
-      surface.material.color
-        .lerp(this.grayColor.setRGB(gray, gray, gray), (1 - this.emphasis) * 0.6)
-        .multiplyScalar(0.58 + this.emphasis * 0.42);
-      surface.material.emissiveIntensity =
-        surface.emission * (0.55 + this.night * 2) * (0.5 + this.emphasis * 0.5);
+    for (const { material, color, emissive, emission } of this.surfaces) {
+      // Background factories turn gray, including their glow, so only the focus reads in color.
+      tintForEmphasis(color.r, color.g, color.b, this.emphasis, material.color);
+      tintForEmphasis(emissive.r, emissive.g, emissive.b, this.emphasis, material.emissive);
+      material.emissiveIntensity =
+        emission * (0.55 + this.night * 2) * (0.35 + this.emphasis * 0.65);
     }
   }
   abstract dispose(): void;
