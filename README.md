@@ -28,11 +28,23 @@ One-time setup:
 
 After that, every push to `main` runs the typecheck, unit tests, build, and deploy in `.github/workflows/deploy-cloudflare.yml`. **Run workflow** on the Actions tab redeploys by hand. Without the secrets, the workflow still checks and builds, then skips the deploy with a notice.
 
-To deploy from your own machine with Node 22:
+To deploy from your own machine, copy the credentials template and fill it in. `.env` is ignored by git and must never be committed.
 
 ```sh
-npx wrangler login
+cp .env.example .env
+```
+
+With Node 22 installed locally:
+
+```sh
 npm run deploy:cloudflare
+```
+
+On a machine whose Node is older than `.nvmrc`, deploy through a container instead. `scripts/deploy-docker.sh` copies the checkout to a temporary directory, then installs, builds, and deploys inside `node:22-alpine`, so no container-owned files land in your working tree. Extra arguments pass through to Wrangler.
+
+```sh
+npm run deploy:docker
+npm run deploy:docker -- --dry-run   # build and validate without deploying
 ```
 
 The site is served by a Workers static-assets project configured in `wrangler.jsonc`, at `https://fpt-token-town.<your-subdomain>.workers.dev`. Add a custom domain under the Worker's Domains & Routes settings. `public/_headers` sets long-lived caching for hashed assets and baseline security headers.
