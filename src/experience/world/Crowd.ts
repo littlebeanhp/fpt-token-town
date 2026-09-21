@@ -14,7 +14,7 @@ import {
   LOT_HALF,
   SIDEWALK_HEIGHT,
   blockIndex,
-  blockKey,
+  blockKeyAt,
   createRandom,
   isDistrictBlock,
 } from './layout';
@@ -100,7 +100,7 @@ export class Crowd {
     this.root.add(this.legs.mesh, this.torsos.mesh, this.heads.mesh, this.hair.mesh);
     const pick = (list: string[]) => this.color.set(list[Math.floor(random() * list.length)]);
     for (const person of this.people) {
-      const key = blockKey(blockIndex(person.x), blockIndex(person.z));
+      const key = blockKeyAt(person.x, person.z);
       const pants = pick(PANTS).clone();
       this.legs.add(this.matrix, pants, key);
       this.legs.add(this.matrix, pants, key);
@@ -313,9 +313,6 @@ export class Crowd {
     this.torsos.applyEmphasis(emphasisForKey);
     this.heads.applyEmphasis(emphasisForKey);
     this.hair.applyEmphasis(emphasisForKey);
-  }
-  get size() {
-    return this.people.length;
   }
   dispose() {
     this.legs.dispose();

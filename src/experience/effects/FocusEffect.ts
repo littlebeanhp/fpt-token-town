@@ -21,8 +21,8 @@ const BOKEH = 2.8;
  * and with screen distance from it, so neighbours at the same depth soften too.
  */
 export class FocusEffect {
-  readonly focusDistance = uniform(35);
-  readonly strength = uniform(0);
+  private readonly focusDistance = uniform(35);
+  private readonly strength = uniform(0);
   private readonly center = uniform(new Vector2(0.5, 0.5));
   private readonly radius = uniform(0.3);
   private readonly aspect = uniform(1);

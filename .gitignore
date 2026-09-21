@@ -1,6 +1,13 @@
 node_modules/
 .next/
+out/
+.wrangler/
+.claude/worktrees/
 *.tsbuildinfo
 test-results/
 playwright-report/
 .env*.local
+
+# Cloudflare credentials - KHÔNG BAO GIỜ commit
+.env
+.dev.vars

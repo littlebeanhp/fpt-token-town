@@ -10,6 +10,7 @@ import {
   type Object3D,
 } from 'three/webgpu';
 import { gsap } from 'gsap';
+import { PRESET_HOURS, formatClock, hoursUntil, phaseAt, wrapHours } from '@/data/clock';
 import { coreStop, models, stops as stopDefinitions } from '@/data/models';
 import type {
   DayPreset,
@@ -24,28 +25,18 @@ import { FocusEffect } from '../effects/FocusEffect';
 import { CPUTokenSimulation } from '../simulation/CPUTokenSimulation';
 import type { TokenSimulation } from '../simulation/TokenSimulation';
 import { City } from '../world/City';
-import {
-  CityClock,
-  PRESET_HOURS,
-  createLightingSample,
-  formatClock,
-  hoursUntil,
-  phaseAt,
-  sampleLighting,
-  wrapHours,
-} from '../world/CityClock';
+import { CityClock, createLightingSample, sampleLighting } from '../world/CityClock';
 import { Core } from '../world/Core';
 import { Crowd } from '../world/Crowd';
 import { Factory } from '../world/Factory';
 import { Lighting } from '../world/Lighting';
-import { blockIndex, blockKey } from '../world/layout';
+import { blockKeyAt } from '../world/layout';
 import { BACKGROUND_EMPHASIS } from './emphasis';
 
 interface Stop {
   definition: StopDefinition;
   asset: FactoryAsset;
   shot: Shot;
-  key: number;
   label: HTMLElement | null;
   /** Rendered tag size in pixels, refreshed with the overlay boxes. */
   labelSize: [number, number];
@@ -84,7 +75,6 @@ export class Experience {
   private pointerDown = new Vector2();
   private projected = new Vector3();
   private overlays: [number, number, number, number][] = [];
-  private labelContainer: HTMLElement;
   private selectedIndex = 0;
   private disposed = false;
   private ready = false;
@@ -105,11 +95,10 @@ export class Experience {
 
   constructor(
     private container: HTMLElement,
-    labelContainer: HTMLElement,
+    private labelContainer: HTMLElement,
     private callbacks: ExperienceCallbacks,
   ) {
     const canvas = this.renderer.domElement;
-    this.labelContainer = labelContainer;
     canvas.setAttribute('aria-label', 'Interactive FPT AI city');
     canvas.setAttribute('role', 'img');
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -194,11 +183,10 @@ export class Experience {
     const [x, , z] = definition.position;
     const anchor = asset.getAnchor('CameraTarget', new Vector3());
     const bounds = new Box3().setFromObject(asset.root).getBoundingSphere(new Sphere());
-    const key = blockKey(blockIndex(x), blockIndex(z));
+    const key = blockKeyAt(x, z);
     this.stops.push({
       definition,
       asset,
-      key,
       label: this.labelContainer.querySelector<HTMLElement>(`[data-stop="${definition.id}"]`),
       labelSize: [0, 0],
       shot: createShot(definition.position, anchor.y, bounds.radius),

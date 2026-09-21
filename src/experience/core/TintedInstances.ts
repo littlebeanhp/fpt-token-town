@@ -65,9 +65,6 @@ export class TintedInstances {
     }
     this.colors.needsUpdate = true;
   }
-  get size() {
-    return this.count;
-  }
   dispose() {
     this.mesh.dispose();
   }
