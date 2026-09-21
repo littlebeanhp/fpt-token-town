@@ -8,7 +8,8 @@
     "start": "npx --yes serve@14 out --listen 3000",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "deploy:cloudflare": "npm run build && npx --yes wrangler@4 deploy"
+    "deploy:cloudflare": "npm run build && npx --yes wrangler@4 deploy",
+    "deploy:docker": "sh scripts/deploy-docker.sh"
   },
   "dependencies": {
     "gsap": "^3.14.0",
