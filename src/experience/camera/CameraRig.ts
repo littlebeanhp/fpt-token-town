@@ -10,6 +10,8 @@ const SHOT_POLAR = MathUtils.degToRad(52);
 const SHOT_AZIMUTH = MathUtils.degToRad(28);
 /** How much of the frame the district's radius fills on its tighter axis. */
 const FILL = 1.12;
+/** Bring locked shots 25% closer so districts and their visitors dominate over the roads. */
+export const SHOT_ZOOM = 1.25;
 const TRANSITION_SECONDS = 1.45;
 
 /** A locked camera stop: where to look and how much of the city block to frame. */
@@ -46,7 +48,7 @@ export function createShot(
  */
 function framing(width: number, height: number) {
   const shiftX = width > 900 ? Math.min(width * 0.1, 170) : 0;
-  const shiftY = width <= 700 && height > width * 1.25 ? height * 0.12 : 0;
+  const shiftY = width <= 700 && height > width * 1.25 ? -height * 0.1 : 0;
   const safeHeight = Math.max(height, 1);
   // Usable half-extents of the view, relative to the full frame height.
   return {
@@ -54,7 +56,7 @@ function framing(width: number, height: number) {
     shiftY,
     fit: {
       x: Math.max(width - shiftX * 2, 1) / safeHeight,
-      y: (safeHeight - shiftY * 2) / safeHeight,
+      y: (safeHeight - Math.abs(shiftY) * 2) / safeHeight,
     },
   };
 }
@@ -68,7 +70,8 @@ function shotSpherical(shot: Shot, fit: Fit, out: Spherical) {
   const halfTangent = Math.tan(MathUtils.degToRad(SHOT_FOV / 2));
   const halfVertical = Math.atan(halfTangent * fit.y);
   const halfHorizontal = Math.atan(halfTangent * fit.x);
-  out.radius = (shot.radius * FILL) / Math.sin(Math.min(halfVertical, halfHorizontal));
+  out.radius =
+    (shot.radius * FILL) / (SHOT_ZOOM * Math.sin(Math.min(halfVertical, halfHorizontal)));
   out.phi = SHOT_POLAR;
   out.theta = shot.side < 0 ? -SHOT_AZIMUTH : SHOT_AZIMUTH;
   return out;
@@ -108,6 +111,15 @@ export class CameraRig {
   private fromSpherical = new Spherical();
   private toSpherical = new Spherical();
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private orbitOffset = 0;
+  orbitBy(delta: number) {
+    if (!this.shot || this.transitioning) return;
+    this.orbitOffset = MathUtils.clamp(this.orbitOffset + delta, -Math.PI / 12, Math.PI / 12);
+    shotSpherical(this.shot, this.fit, this.spherical);
+    this.spherical.theta += this.orbitOffset;
+    this.canvas.dataset.orbit = String(this.orbitOffset);
+    this.apply();
+  }
   constructor(private canvas: HTMLCanvasElement) {
     this.canvas.dataset.transition = 'idle';
     this.apply();
@@ -127,6 +139,7 @@ export class CameraRig {
     // Mid-transition resizes are picked up by the tween, which refits every frame.
     if (this.shot && !this.transitioning) {
       shotSpherical(this.shot, this.fit, this.spherical);
+      this.spherical.theta += this.orbitOffset;
       this.apply();
     }
   }
@@ -136,6 +149,8 @@ export class CameraRig {
     this.shot = shot;
     this.fromTarget.copy(this.target);
     this.fromSpherical.copy(this.spherical);
+    this.orbitOffset = 0;
+    this.canvas.dataset.orbit = '0';
     if (!from) immediate = true;
     this.canvas.dataset.transition = 'active';
     const state = { progress: 0 };

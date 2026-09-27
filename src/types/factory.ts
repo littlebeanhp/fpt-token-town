@@ -40,6 +40,8 @@ export interface ClockState {
   speed: number;
 }
 export interface ExperienceCallbacks {
+  /** A rendered starting view is available; tour controls wait for onReady. */
+  onPreview?: () => void;
   onSelect: (id: StopId) => void;
   onReady: (backend: string) => void;
   onError: (message: string) => void;

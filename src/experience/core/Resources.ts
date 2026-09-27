@@ -10,10 +10,22 @@ import {
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 export class Resources {
-  readonly box = new RoundedBoxGeometry(1, 1, 1, 1, 0.045);
-  readonly cube = new BoxGeometry(1, 1, 1);
-  readonly cylinder = new CylinderGeometry(1, 1, 1, 8);
-  readonly ring = new TorusGeometry(1, 0.025, 4, 48);
+  private boxGeometry?: RoundedBoxGeometry;
+  private cubeGeometry?: BoxGeometry;
+  private cylinderGeometry?: CylinderGeometry;
+  private ringGeometry?: TorusGeometry;
+  get box() {
+    return (this.boxGeometry ??= new RoundedBoxGeometry(1, 1, 1, 1, 0.045));
+  }
+  get cube() {
+    return (this.cubeGeometry ??= new BoxGeometry(1, 1, 1));
+  }
+  get cylinder() {
+    return (this.cylinderGeometry ??= new CylinderGeometry(1, 1, 1, 8));
+  }
+  get ring() {
+    return (this.ringGeometry ??= new TorusGeometry(1, 0.025, 4, 48));
+  }
   private materials = new Map<string, MeshStandardMaterial>();
 
   material(color: ColorRepresentation, emissive = false) {
@@ -45,10 +57,10 @@ export class Resources {
     return mesh;
   }
   dispose() {
-    this.box.dispose();
-    this.cube.dispose();
-    this.cylinder.dispose();
-    this.ring.dispose();
+    this.boxGeometry?.dispose();
+    this.cubeGeometry?.dispose();
+    this.cylinderGeometry?.dispose();
+    this.ringGeometry?.dispose();
     this.materials.forEach((material) => material.dispose());
   }
 }

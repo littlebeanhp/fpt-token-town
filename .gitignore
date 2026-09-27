@@ -11,3 +11,6 @@ playwright-report/
 # Cloudflare credentials - KHÔNG BAO GIỜ commit
 .env
 .dev.vars
+
+# Original authoring exports. Optimized runtime models live in public/models/.
+.local-assets/

@@ -1,15 +1,73 @@
-import { Group, Mesh } from 'three/webgpu';
+import { Box3, Group, Mesh, MeshStandardMaterial, Vector3, type Texture } from 'three/webgpu';
 import type { StopDefinition } from '@/types/factory';
 import { Resources } from '../core/Resources';
 import { AssetBase } from '../loaders/AssetBase';
 
 /** The central FPT token router. It is the default camera stop and shares the asset contract. */
 export class Core extends AssetBase {
+  static async create(definition: StopDefinition) {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const gltf = await new GLTFLoader().loadAsync('/models/ho-guom-v1.glb');
+    const visual = gltf.scene;
+    visual.updateMatrixWorld(true);
+    const bounds = new Box3().setFromObject(visual);
+    const size = bounds.getSize(new Vector3());
+    const scale = Math.min(5 / size.x, 4.6 / size.z, 5.3 / size.y);
+    visual.scale.setScalar(scale);
+    visual.position.set(
+      (-(bounds.min.x + bounds.max.x) * scale) / 2,
+      0.14 - bounds.min.y * scale,
+      (-(bounds.min.z + bounds.max.z) * scale) / 2,
+    );
+    let windows = 0;
+    visual.traverse((object) => {
+      const mesh = object as Mesh;
+      if (!mesh.isMesh) return;
+      const isWindow = mesh.name.toLowerCase().replace(/[^a-z0-9]/g, '') === 'texturedmeshobj001';
+      if (isWindow) windows++;
+      const convert = (input: import('three/webgpu').Material) => {
+        const source = input as MeshStandardMaterial;
+        const material = new MeshStandardMaterial({
+          color: source.color,
+          map: source.map,
+          normalMap: source.normalMap,
+          roughnessMap: source.roughnessMap,
+          metalnessMap: source.metalnessMap,
+          roughness: source.roughness,
+          metalness: source.metalness,
+          side: source.side,
+          vertexColors: source.vertexColors,
+        });
+        if (isWindow) {
+          material.emissive.set('#ffcf80');
+          material.emissiveIntensity = 3;
+        }
+        return material;
+      };
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map(convert)
+        : convert(mesh.material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+    });
+    if (!windows) throw new Error('Ho Guom window mesh textured_mesh.obj.001 is missing');
+    visual.name = 'VISUAL';
+    return new Core(definition, visual);
+  }
+  private authored = false;
   private readonly rings: Mesh[] = [];
   private resources = new Resources();
-  constructor(definition: StopDefinition) {
+  constructor(definition: StopDefinition, authored?: Group) {
     super(new Group());
     this.root.name = 'ROOT';
+    if (authored) {
+      this.authored = true;
+      this.root.add(authored);
+      this.prepare();
+      this.root.position.set(...definition.position);
+      this.root.updateMatrixWorld(true);
+      return;
+    }
     const visual = new Group();
     visual.name = 'VISUAL';
     this.root.add(visual);
@@ -48,10 +106,24 @@ export class Core extends AssetBase {
     this.root.updateMatrixWorld(true);
   }
   update(time: number) {
+    if (this.authored) return;
     this.rings[0].rotation.y = Math.sin(time * 0.5) * 0.2;
     this.rings[1].rotation.y = -time * 0.16;
   }
   dispose() {
+    if (this.authored) {
+      const textures = new Set<Texture>();
+      this.root.traverse((object) => {
+        const mesh = object as Mesh;
+        if (!mesh.isMesh) return;
+        mesh.geometry.dispose();
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+          material.dispose();
+        }
+      });
+      textures.forEach((texture) => texture.dispose());
+    }
     this.resources.dispose();
   }
 }
