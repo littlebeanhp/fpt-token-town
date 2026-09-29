@@ -22,16 +22,18 @@ import type {
 } from '@/types/factory';
 import { CameraRig, createShot, type Shot } from '../camera/CameraRig';
 import { FocusEffect } from '../effects/FocusEffect';
-import { CPUTokenSimulation } from '../simulation/CPUTokenSimulation';
 import type { TokenSimulation } from '../simulation/TokenSimulation';
 import { City } from '../world/City';
 import { CityClock, createLightingSample, sampleLighting } from '../world/CityClock';
 import { Core } from '../world/Core';
-import { Crowd } from '../world/Crowd';
+import type { Crowd } from '../world/Crowd';
+import type { QueueBarriers } from '../world/QueueBarriers';
 import { Factory } from '../world/Factory';
 import { Lighting } from '../world/Lighting';
+import type { Traffic } from '../world/Traffic';
 import { blockKeyAt } from '../world/layout';
 import { BACKGROUND_EMPHASIS } from './emphasis';
+import { AdaptiveResolution, renderPixelRatio } from './RenderQuality';
 
 interface Stop {
   definition: StopDefinition;
@@ -45,6 +47,12 @@ interface Stop {
 const EMPHASIS_SECONDS = 1.45;
 /** Minimum space, in pixels, between a neighbour tag and the frame edge or an overlay. */
 const LABEL_GAP = 12;
+/** Yield after startup work so the browser can present the preview and handle input. */
+const yieldToBrowser = () =>
+  new Promise<void>((resolve) => {
+    if (document.hidden) setTimeout(resolve, 0);
+    else requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
 
 export class Experience {
   private readonly scene = new Scene();
@@ -56,6 +64,8 @@ export class Experience {
   private readonly lighting: Lighting;
   private city?: City;
   private crowd?: Crowd;
+  private queueBarriers?: QueueBarriers;
+  private traffic?: Traffic;
   private core?: Core;
   private effects?: FocusEffect;
   private simulation?: TokenSimulation;
@@ -73,18 +83,24 @@ export class Experience {
   private raycaster = new Raycaster();
   private pointer = new Vector2();
   private pointerDown = new Vector2();
+  private dragPointer: number | null = null;
+  private dragX = 0;
+  private dragged = false;
   private projected = new Vector3();
   private overlays: [number, number, number, number][] = [];
   private selectedIndex = 0;
   private disposed = false;
   private ready = false;
+  private previewReady = false;
   private rendererInitialized = false;
   private width = 1;
   private height = 1;
   private previous = 0;
   private elapsed = 0;
-  private crowdElapsed = -1;
+  private crowdElapsed = 0;
+  private crowdRenderedAt = -1;
   private frame = 0;
+  private quality = new AdaptiveResolution();
   private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   private clock = new CityClock(undefined, this.reduced);
   private clockTween?: gsap.core.Tween;
@@ -101,7 +117,6 @@ export class Experience {
     const canvas = this.renderer.domElement;
     canvas.setAttribute('aria-label', 'Interactive FPT AI city');
     canvas.setAttribute('role', 'img');
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     this.renderer.onDeviceLost = () => {
@@ -120,6 +135,8 @@ export class Experience {
     canvas.addEventListener('pointerdown', this.onPointerDown);
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointermove', this.onPointerMove);
+    canvas.addEventListener('pointercancel', this.onPointerCancel);
+    canvas.addEventListener('lostpointercapture', this.onPointerCancel);
     document.addEventListener('visibilitychange', this.onVisibility);
   }
 
@@ -132,8 +149,41 @@ export class Experience {
         this.rendererInitialized = false;
         return;
       }
-      this.core = new Core(coreStop);
+      this.core = await Core.create(coreStop);
+      if (this.disposed) {
+        this.core.dispose();
+        return;
+      }
       this.addStop(coreStop, this.core);
+      this.city = new City();
+      this.scene.add(this.city.root);
+      this.resize();
+      this.rig.focus(this.stops[0].shot, true);
+      this.updateLighting(true);
+      this.city.applyEmphasis((key) =>
+        key === blockKeyAt(coreStop.position[0], coreStop.position[2]) ? 1 : BACKGROUND_EMPHASIS,
+      );
+      this.effects = new FocusEffect(this.renderer, this.scene, this.rig.camera);
+      this.effects.update(this.rig.target, this.stops[0].shot.radius, 0);
+      this.effects.render();
+      this.previewReady = true;
+      this.renderer.domElement.dataset.preview = 'ready';
+      // Keep the preview responsive while optional chunks, objects, and shaders are prepared.
+      this.renderer.setAnimationLoop(document.hidden ? null : this.animate);
+      this.callbacks.onPreview?.();
+      // Let the first city view paint before preparing animated props and the other stops.
+      await yieldToBrowser();
+      if (this.disposed) return;
+      const treesReady = this.city.loadTrees();
+      const [{ Crowd }, { QueueBarriers }, { Traffic }, { CPUTokenSimulation }] = await Promise.all(
+        [
+          import('../world/Crowd'),
+          import('../world/QueueBarriers'),
+          import('../world/Traffic'),
+          import('../simulation/CPUTokenSimulation'),
+        ],
+      );
+      if (this.disposed) return;
       for (const model of models) {
         const factory = await Factory.create(model);
         if (this.disposed) {
@@ -142,19 +192,30 @@ export class Experience {
         }
         this.factories.push(factory);
         this.addStop(model, factory.asset);
+        await yieldToBrowser();
+        if (this.disposed) return;
       }
-      this.city = new City();
-      this.crowd = new Crowd(
-        this.stops.map(({ definition, asset }) => ({
-          x: definition.position[0],
-          z: definition.position[2],
-          front: new Box3().setFromObject(asset.root).max.z,
-          color: definition.color,
-        })),
-      );
+      await treesReady;
+      if (this.disposed) return;
+      const crowdSites = this.stops.map(({ definition, asset }) => ({
+        x: definition.position[0],
+        z: definition.position[2],
+        front: new Box3().setFromObject(asset.root).max.z,
+        color: definition.color,
+      }));
+      this.crowd = await Crowd.create(crowdSites);
+      this.queueBarriers = new QueueBarriers(crowdSites.slice(1));
+      await yieldToBrowser();
+      if (this.disposed) return;
       this.simulation = new CPUTokenSimulation(this.factories, new Vector3(...coreStop.position));
-      this.scene.add(this.city.root, this.crowd.root, this.simulation.root);
-      this.effects = new FocusEffect(this.renderer, this.scene, this.rig.camera);
+      this.traffic = new Traffic();
+      this.traffic.update(0, this.reduced);
+      this.scene.add(
+        this.crowd.root,
+        this.queueBarriers.root,
+        this.simulation.root,
+        this.traffic.root,
+      );
       this.ready = true;
       this.resize();
       this.select(coreStop.id, true);
@@ -166,8 +227,6 @@ export class Experience {
       const backend = 'isWebGPUBackend' in this.renderer.backend ? 'WebGPU' : 'WebGL2';
       this.renderer.domElement.dataset.backend = backend;
       this.callbacks.onReady(backend);
-      this.effects.setActive(true, this.reduced);
-      this.renderer.setAnimationLoop(this.animate);
     } catch (error) {
       if (!this.disposed) {
         console.error(error);
@@ -209,6 +268,7 @@ export class Experience {
     this.selectedIndex = index;
     const stop = this.stops[index];
     this.rig.focus(stop.shot, immediate);
+    this.traffic?.setFocus(stop.definition.position[0], stop.definition.position[2]);
     this.emphasisTween?.kill();
     const targets = Object.fromEntries(
       this.stops.map(({ definition }) => [
@@ -281,6 +341,7 @@ export class Experience {
       this.appliedNight = this.sample.night;
       const value = this.sample.night;
       this.city?.setNight(value);
+      this.traffic?.setNight(value);
       this.simulation?.setNight(value);
       for (const stop of this.stops) stop.asset.setNight(value);
     }
@@ -329,12 +390,17 @@ export class Experience {
     }
     this.city?.applyEmphasis(this.emphasisForKey);
     this.crowd?.applyEmphasis(this.emphasisForKey);
+    this.queueBarriers?.applyEmphasis(this.emphasisForKey);
+    this.traffic?.applyEmphasis(this.emphasisForKey);
   }
 
   private resize = () => {
     this.width = this.container.clientWidth;
     this.height = this.container.clientHeight;
     if (!this.width || !this.height || this.disposed) return;
+    this.renderer.setPixelRatio(
+      renderPixelRatio(window.devicePixelRatio, this.width, this.height, this.quality.scale),
+    );
     this.renderer.setSize(this.width, this.height);
     this.rig.resize(this.width, this.height);
   };
@@ -349,46 +415,70 @@ export class Experience {
     return hit ? (this.owners.get(hit.object) ?? null) : null;
   }
   private onPointerDown = (event: PointerEvent) => {
+    if (event.button !== 0 || !this.ready || this.rig.transitioning || this.dragPointer !== null)
+      return;
+    this.dragPointer = event.pointerId;
+    this.dragX = event.clientX;
+    this.dragged = false;
     this.pointerDown.set(event.clientX, event.clientY);
+    this.renderer.domElement.setPointerCapture(event.pointerId);
+  };
+  private onPointerCancel = () => {
+    this.dragPointer = null;
+    this.renderer.domElement.style.cursor = 'grab';
   };
   private onPointerUp = (event: PointerEvent) => {
-    if (event.button !== 0 || !this.ready) return;
+    if (event.pointerId !== this.dragPointer || !this.ready) return;
+    this.dragPointer = null;
+    this.renderer.domElement.releasePointerCapture(event.pointerId);
     const dx = event.clientX - this.pointerDown.x,
       dy = event.clientY - this.pointerDown.y;
-    // A horizontal swipe steps through the tour; a tap on a neighbour focuses it.
-    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      this.step(dx < 0 ? 1 : -1);
-      return;
-    }
-    if (Math.hypot(dx, dy) < 6) {
+    if (!this.dragged && Math.hypot(dx, dy) < 6) {
       const id = this.pick(event);
       if (id && id !== this.selected) this.select(id);
     }
   };
   private onPointerMove = (event: PointerEvent) => {
+    if (event.pointerId === this.dragPointer) {
+      if (Math.hypot(event.clientX - this.pointerDown.x, event.clientY - this.pointerDown.y) > 6)
+        this.dragged = true;
+      if (this.dragged) {
+        this.rig.orbitBy(-(event.clientX - this.dragX) * 0.002);
+        this.renderer.domElement.style.cursor = 'grabbing';
+        this.updateLabels();
+      }
+      this.dragX = event.clientX;
+      return;
+    }
     if (event.buttons || !this.ready) return;
     const id = this.pick(event);
-    this.renderer.domElement.style.cursor = id && id !== this.selected ? 'pointer' : 'default';
+    this.renderer.domElement.style.cursor = id && id !== this.selected ? 'pointer' : 'grab';
   };
   private onVisibility = () => {
     this.previous = 0;
-    if (this.ready && !this.disposed)
+    this.quality.reset();
+    if (this.previewReady && !this.disposed)
       this.renderer.setAnimationLoop(document.hidden ? null : this.animate);
   };
 
   private animate = (now: number) => {
     if (this.disposed) return;
-    const delta = this.previous ? Math.min((now - this.previous) / 1000, 0.05) : 0;
+    const frameDelta = this.previous ? (now - this.previous) / 1000 : 0;
+    const delta = Math.min(frameDelta, 0.05);
+    if (this.quality.sample(frameDelta)) this.resize();
     this.previous = now;
-    if (!this.reduced) this.elapsed += delta;
+    const motionDelta = this.reduced ? 0 : delta * this.clock.speed;
+    this.elapsed += motionDelta;
+    if (!this.reduced) this.crowdElapsed += delta;
     if (!this.clockTween) this.clock.advance(delta);
     this.updateLighting();
     if (this.emphasisDirty) this.applyEmphasis();
     this.core?.update(this.elapsed);
-    this.simulation?.update(delta, this.elapsed);
-    if (this.crowd && this.elapsed !== this.crowdElapsed) {
-      this.crowdElapsed = this.elapsed;
-      this.crowd.update(this.elapsed);
+    this.traffic?.update(delta, this.reduced, this.clock.speed);
+    this.simulation?.update(motionDelta, this.elapsed);
+    if (this.crowd && this.crowdElapsed !== this.crowdRenderedAt) {
+      this.crowdRenderedAt = this.crowdElapsed;
+      this.crowd.update(this.crowdElapsed);
     }
     const stop = this.stops[this.selectedIndex];
     this.effects?.update(this.rig.target, stop.shot.radius, delta);
@@ -460,6 +550,8 @@ export class Experience {
     canvas.removeEventListener('pointerdown', this.onPointerDown);
     canvas.removeEventListener('pointerup', this.onPointerUp);
     canvas.removeEventListener('pointermove', this.onPointerMove);
+    canvas.removeEventListener('pointercancel', this.onPointerCancel);
+    canvas.removeEventListener('lostpointercapture', this.onPointerCancel);
     document.removeEventListener('visibilitychange', this.onVisibility);
     this.rig.dispose();
     this.effects?.dispose();
@@ -467,6 +559,8 @@ export class Experience {
     this.factories.forEach((factory) => factory.dispose());
     this.core?.dispose();
     this.crowd?.dispose();
+    this.queueBarriers?.dispose();
+    this.traffic?.dispose();
     this.city?.dispose();
     this.lighting.dispose();
     if (this.rendererInitialized) {

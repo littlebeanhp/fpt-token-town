@@ -1,6 +1,5 @@
 import type { FactoryAsset, ModelDefinition } from '@/types/factory';
 import { PrimitiveFactoryAsset } from '../loaders/PrimitiveFactoryAsset';
-import { GLTFFactoryAsset } from '../loaders/GLTFFactoryAsset';
 
 export class Factory {
   private constructor(
@@ -9,7 +8,7 @@ export class Factory {
   ) {}
   static async create(model: ModelDefinition) {
     const asset = model.assetUrl
-      ? await GLTFFactoryAsset.load(model)
+      ? await (await import('../loaders/GLTFFactoryAsset')).GLTFFactoryAsset.load(model)
       : new PrimitiveFactoryAsset(model);
     return new Factory(model, asset);
   }

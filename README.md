@@ -1,8 +1,8 @@
 # FPT AI Token Factory
 
-See [ROADMAP.md](./ROADMAP.md) for the persisted plan. Milestones 1 and 2 and the locked city tour are complete; vehicle traffic is next.
+See [ROADMAP.md](./ROADMAP.md) for the persisted plan. Milestones 1 and 2 and the locked city tour are complete. Milestone 3 vehicle traffic is implemented; real-GPU profiling remains pending.
 
-A miniature AI city built with Next.js, TypeScript, imperative Three.js WebGPURenderer, TSL depth of field, GSAP, and React overlays. No React Three Fiber. All current assets are procedural primitives.
+A miniature AI city built with Next.js, TypeScript, imperative Three.js WebGPURenderer, TSL focus blur, GSAP, and React overlays. No React Three Fiber. The city combines procedural geometry with optimized GLB buildings, characters and trees.
 
 ## Run
 
@@ -72,12 +72,15 @@ Upload the contents of `out/`, serve `404.html` for missing paths, and cache `/_
 
 ## Locked City Tour
 
-- The view opens focused on the FPT Core, the central token router, and is always locked to a stop. There is no overview, free orbit, pan, or zoom.
-- Previous and Next move through the core and the six districts and wrap at both ends. Arrow keys and horizontal swipes do the same; Escape, Home, the house button, and the panel's back button return to the core.
+- The view opens focused on the FPT Core, the central token router, and is always locked to a stop. Dragging adjusts the view within a 30-degree horizontal arc (±15°); each new stop resets the angle. There is no free pan or zoom.
+- Previous and Next move through the core and the six districts and wrap at both ends. Arrow keys do the same; Escape, Home, the house button, and the Home key return to the core.
 - Clicking a neighbouring building or its floating tag focuses it. Clicking empty city keeps the current stop.
-- The districts sit on a 10-unit block grid inside a filled city that extends 95 units in every direction, so no shot or transition can see the edge of the world. Left-column shots mirror the camera angle to look back across the city.
-- Everything outside the focused block turns gray and slightly darker: other factories, their glow, visitor crowds, trees, lots, and token lanes. Depth of field blurs by camera-space depth and by screen distance from the focused district.
-- Each district has a voxel visitor queue, and pedestrians walk the nearby sidewalks. Some visitors wear their district's brand color.
+- The districts sit on a 10-unit block grid inside a compact 9×9 city (81 blocks, 45 units in every direction). Camera-relative fog hides the outer edge on wide and tall views. Locked tour shots use a 1.25× close framing so the active model and its visitors dominate the view; left-column shots mirror the camera angle to look back across the city.
+- Everything outside the focused block turns gray and slightly darker: other factories, their glow, visitor crowds, trees, lots, and token lanes. A stronger background blur follows camera depth and screen distance, while the focused district stays sharp.
+- Each model shop has a dense serpentine queue between silver stanchions and sagging red ropes. Every 0.5 seconds the line takes one short step: the front visitor enters and immediately exits onto a fast circuit around the building, while the returning runner rejoins the back. Exactly ten runners stay on each building circuit and nobody disappears. Waiting legs rest between steps; walking and running strides follow actual travel distance. Some visitors wear their district's brand color, and the supplied Grab rider appears among the crowd.
+- Grab and FPT characters use three instanced parts from their optimized walking GLBs. Their one-second split-leg clips are sampled independently from distance travelled, so queue steps, normal walking, and running use matching leg cadence. FPT appears 1.5 times as often as Grab. The runtime assets retain all animation channels at about 120 KB and 110 KB respectively.
+- Original GLB authoring exports live under the gitignored `.local-assets/glb/` folder. Only optimized runtime copies belong in `public/models/`.
+- The core uses `ho-guom-v1.glb` (about 281 KB). Its separate `textured_mesh.obj.001` window object receives warm HDR emission, with a quarter-resolution highlight blur providing bloom. The original export stays in `.local-assets/glb/ho_guom (1).glb`.
 
 ## Time-Lapse City (Milestone 2)
 
@@ -86,11 +89,18 @@ Upload the contents of `out/`, serve `404.html` for missing paths, and cache `/_
 - A single night value drives building windows, street lamps and their light pools, token intensity, and a warm light on the focused district. The page theme follows the city after dark.
 - The clock stops in hidden tabs. With reduced motion it starts paused, presets jump instantly, and camera moves are immediate.
 
+## Vehicle Traffic (Milestone 3)
+
+- Compact low-poly cars and occasional bikes cruise the road grid on rounded, evenly spaced loops.
+- Cars leave two short, fading warm light trails; bikes leave one. Trails start at the actual rear bulb faces at lamp height, follow the bulbs through turns, stay subtle by day, and brighten at night with the headlights.
+- Vehicles and trails share their block's focus tint. Distant traffic pauses; reduced motion freezes vehicles and hides trails. The 1×/4×/12× speed control now drives vehicles, pedestrians, token flow, and the core animation together; the default 4× gives the whole city a time-lapse pace. Clock pause and day/night presets hold the lighting while ambient movement continues; reduced motion freezes everything.
+- `VehicleAsset` is the model-replacement boundary: provide shared component geometry/materials, exact rear-light positions and colors, night treatment, and cleanup. `Traffic` accepts car and bike assets and owns their instanced rendering and movement. Models use meters, Y-up, +Z forward, and tires at ground level.
+
 ## Milestone One
 
 - Six distinct factory silhouettes, an animated central token router, and instanced props.
 - Raycast selection, 1.45-second interruptible camera transitions, and model navigation.
-- TSL depth-buffer-based depth of field with smoothly tracked camera-space focus distance. Opacity is never used for focus.
+- TSL depth-aware focus blur with smoothly tracked camera-space focus distance. Opacity is never used for focus.
 - Bidirectional instanced cube traffic along CatmullRomCurve3 paths.
 - Responsive HTML model panels, projected labels, accessible controls, and an API request preview with copy support.
 
@@ -98,17 +108,17 @@ Model context lengths are explicitly unverified; token usage, crowd sizes, and t
 
 ## Organization
 
-| Path                        | Responsibility                                                                |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `src/experience/core`       | Renderer lifecycle, tour selection, raycasts, pooled resources, focus tinting |
-| `src/experience/world`      | City grid and layout, core, crowds, city clock, lighting, factory object      |
-| `src/experience/camera`     | Locked shots, lens shift framing, and interruptible transitions               |
-| `src/experience/effects`    | TSL depth-of-field render pipeline with a screen-space focus falloff          |
-| `src/experience/simulation` | TokenSimulation contract and CPU instanced implementation                     |
-| `src/experience/loaders`    | PrimitiveFactoryAsset, GLTFFactoryAsset, common anchor/material behavior      |
-| `src/components`            | React overlays, tour controls, time-lapse controls, and API dialog            |
-| `src/data`                  | Model catalog, tour order, and framework-free clock helpers                   |
-| `src/types`                 | Asset and application contracts                                               |
+| Path                        | Responsibility                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `src/experience/core`       | Renderer lifecycle, tour selection, raycasts, pooled resources, focus tinting           |
+| `src/experience/world`      | City grid and layout, core, crowds, vehicles, city clock, lighting, factory object      |
+| `src/experience/camera`     | Locked shots, lens shift framing, and interruptible transitions                         |
+| `src/experience/effects`    | TSL quarter-resolution blur and sharp-focus composite with a screen-space focus falloff |
+| `src/experience/simulation` | TokenSimulation contract and CPU instanced implementation                               |
+| `src/experience/loaders`    | Factory and vehicle asset implementations, common factory anchor/material behavior      |
+| `src/components`            | React overlays, tour controls, time-lapse controls, and API dialog                      |
+| `src/data`                  | Model catalog, tour order, and framework-free clock helpers                             |
+| `src/types`                 | Asset and application contracts                                                         |
 
 ## Replace a Factory With a GLB
 
@@ -135,9 +145,13 @@ Model positions in `src/data/models.ts` place each district on a block of the 10
 
 `TokenSimulation` exposes `root`, `update(delta, elapsed)`, `setNight`, `setEmphasis`, and `dispose`. A future TSL compute implementation can replace `CPUTokenSimulation` without altering the scene, factory, camera, or UI interfaces. Input/output positions come from asset anchors; curves are created once when assets load.
 
-Geometry and materials are reused per resource owner. Filler buildings, window bands, lots, road markings, lamps, light pools, trees, token cubes, and every body part of the crowd are instanced. `TintedInstances` stores each instance's base color and city block, and rewrites instance colors only while focus emphasis is changing. Future cars should use the same batches. Crowd and token updates reuse scratch vectors, quaternions, and matrices and allocate nothing per frame. DPR is capped at 2, animation and the city clock pause in hidden tabs, and reduced-motion preferences stop ambient animation, pause the clock, and remove camera transition motion. Shadows use one directional light with a 2048px map whose frustum follows the focused district; the night focus light casts no shadow.
+Geometry and materials are reused per resource owner. Filler buildings, window bands, lots, road markings, lamps, light pools, trees, token cubes, vehicle parts, light trails, queue ropes and posts, and every body part of the crowd are instanced. `TintedInstances` stores each instance's base color and city block, and rewrites instance colors only while focus emphasis is changing. Vehicles and their trails use the same batches. Crowd, vehicle, and token updates reuse scratch vectors, quaternions, and matrices and allocate nothing per frame. GPU pixel density is capped at 1.5 on desktop and 1.25 on mobile, with a 1.5-million-pixel frame budget and gradual adaptive scaling. Animation and the city clock pause in hidden tabs, and reduced-motion preferences stop ambient animation, pause the clock, and remove camera transition motion. Shadows use one directional light with a 1024px map whose frustum follows the focused district; the night focus light casts no shadow.
 
-60fps is the desktop target, not a measured guarantee. Profile on deployment hardware, especially at DPR 2 with depth of field, which is always active in the locked tour. Software Vulkan browser tests run near one frame per second and cannot establish hardware performance.
+The city shows an initial core view before downloading the crowd, queue, vehicle, and token modules. Tour controls become available after the districts are prepared. The optional GLB loader is fetched only when a model has an `assetUrl`. Shared primitive resources create geometry only when used. DM Sans and Manrope variable font subsets are served locally, with their OFL licenses in `public/fonts/`; there are no Google Fonts requests on the client.
+
+Background lots use one simple, shadow-free house each, with no bevels, rooftop machinery, or repeated window grids. Street markings and lamps are limited to the central neighbourhood. All district trees use alternating instanced `pin-tree-v1.glb` and `tree-v1.glb` assets loaded after the first city preview. Two quarter-resolution Gaussian passes replace the multi-pass bokeh effect; a depth/screen mask composites the focused block at the scene's full resolution.
+
+The static city plus six shop models dropped from 20,222 placed instances / 487,878 triangles to 1,835 / 28,522, counted before culling. This is a geometry budget, not a measured frame rate. Unit tests enforce the smaller backdrop budget, fog coverage through camera transitions, and adaptive-resolution limits. 60fps remains a target requiring validation on real GPUs; software browser checks establish correctness, not hardware performance.
 
 ## Verify
 
@@ -150,10 +164,14 @@ npm exec playwright install chromium
 node scripts/browser-check.mjs
 # Force the WebGL2 fallback through the same tests:
 FORCE_WEBGL=1 node scripts/browser-check.mjs
+# Check progressive startup against the matching local out/ build:
+node scripts/startup-check.mjs
 ```
 
-Unit tests cover the asset contract, glTF loading, the city clock and lighting continuity, per-block graying, and the locked camera. The camera tests cast rays through every shot, several desktop and mobile viewports, and mid-transition poses. Every ray must point below the horizon and land inside the built-up city, and no filler block or other district may hide the focused plaza.
+Unit tests cover the asset contract, glTF loading, the city clock and lighting continuity, per-block graying, the locked camera, and vehicle lane continuity, sidewalk clearance, focus tinting, motion preferences, night lights, lamp-to-trail attachment through turns, time-lapse speed, queue clearance, and cleanup. The camera tests cast rays through every shot, several desktop and mobile viewports, and mid-transition poses. Every ray must point below the horizon and either land inside the city or reach fully opaque fog, and no filler block or other district may hide the focused plaza.
 
-The browser script checks nonblank pixels, changing animation, the core default, wrapping Next/Previous, keyboard navigation, locked background clicks, tag and raycast selection, time-lapse pause/play/speed, day/dusk/night presets, the API dialog, mobile overflow, and rapid navigation. Screenshots are written to `test-results/`. Linux CI uses software Vulkan flags for WebGPU; test runs on a real GPU should omit those flags. `TEST_URL` can point to another server, and `HEADED=1` enables a visible browser when a display is available.
+The browser script checks nonblank pixels, changing animation, the core default, wrapping Next/Previous, keyboard navigation, locked background clicks, tag and raycast selection, time-lapse pause/play/speed, day/dusk/night presets, the API dialog, mobile overflow, and rapid navigation. Screenshots are written to `test-results/`. Linux CI uses software Vulkan flags for WebGPU; test runs on a real GPU should omit those flags. `TEST_URL` can point to another server, `TEST_DPR=0.5` lowers render resolution for slow software GPUs while preserving desktop/mobile CSS framing, and `HEADED=1` enables a visible browser when a display is available.
 
-The PostCSS override applies a security fix to Next.js 15's transitive dependency. Keep the lockfile checked in. External Google Fonts are optional; system fonts are the fallback.
+The PostCSS override applies a security fix to Next.js 15's transitive dependency. Keep the lockfile checked in. The bundled local fonts use system fonts as their loading fallback.
+
+The interface is a full-viewport city with compact glass panels, an overlaid title, Previous/Next navigation and time controls. The old header, model dock and footer have been removed. Usage, pricing and capabilities remain explicitly unavailable until a verified data source is connected.

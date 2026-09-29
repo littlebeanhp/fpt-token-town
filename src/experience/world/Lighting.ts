@@ -10,9 +10,10 @@ import {
   type WebGPURenderer,
 } from 'three/webgpu';
 import type { LightingSample } from './CityClock';
+import { FOG_NEAR_OFFSET, FOG_FAR_OFFSET } from './layout';
 
 const LIGHT_DISTANCE = 42;
-const SHADOW_HALF_SIZE = 26;
+const SHADOW_HALF_SIZE = 16;
 
 export class Lighting {
   readonly sun = new DirectionalLight('#fff4dc', 3.3);
@@ -26,7 +27,7 @@ export class Lighting {
     scene.background = this.background;
     scene.fog = this.fog;
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(1024, 1024);
     const shadowCamera = this.sun.shadow.camera;
     shadowCamera.left = -SHADOW_HALF_SIZE;
     shadowCamera.right = SHADOW_HALF_SIZE;
@@ -57,8 +58,8 @@ export class Lighting {
   }
   /** Keeps fog relative to the camera so every framing hides the same far distance. */
   setFogRange(cameraDistance: number) {
-    this.fog.near = cameraDistance + 10;
-    this.fog.far = cameraDistance + 85;
+    this.fog.near = cameraDistance + FOG_NEAR_OFFSET;
+    this.fog.far = cameraDistance + FOG_FAR_OFFSET;
   }
   dispose() {
     this.sun.shadow.dispose();

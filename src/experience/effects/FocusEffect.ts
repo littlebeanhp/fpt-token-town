@@ -7,64 +7,44 @@ import {
   type Scene,
   type WebGPURenderer,
 } from 'three/webgpu';
-import { float, length, pass, screenUV, select, smoothstep, uniform, vec2 } from 'three/tsl';
-import { dof } from 'three/addons/tsl/display/DepthOfFieldNode.js';
-import { gsap } from 'gsap';
+import { length, mix, pass, screenUV, smoothstep, uniform, vec2 } from 'three/tsl';
+import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 
-/** Depth band around the focus that stays sharp, in world units. */
-const SHARP_BAND = 3.4;
-const FOCAL_LENGTH = 3.5;
-const BOKEH = 2.8;
-
-/**
- * Tilt-shift style focus. Blur grows with camera-space distance from the focused district
- * and with screen distance from it, so neighbours at the same depth soften too.
- */
+/** Two quarter-resolution blur passes, with a sharp full-resolution district composite. */
 export class FocusEffect {
   private readonly focusDistance = uniform(35);
-  private readonly strength = uniform(0);
   private readonly center = uniform(new Vector2(0.5, 0.5));
   private readonly radius = uniform(0.3);
   private readonly aspect = uniform(1);
+  private readonly blurRadius = uniform(1.5);
   private readonly scenePass;
-  private readonly effect;
+  private readonly blur;
+  private readonly glow;
   private readonly pipeline: RenderPipeline;
-  private direction = new Vector3();
-  private offset = new Vector3();
-  private projected = new Vector3();
-  private tween?: gsap.core.Tween;
+  private readonly direction = new Vector3();
+  private readonly offset = new Vector3();
+  private readonly projected = new Vector3();
+
   constructor(
     private renderer: WebGPURenderer,
-    private scene: Scene,
+    scene: Scene,
     private camera: PerspectiveCamera,
   ) {
     this.scenePass = pass(scene, camera);
-    const signedDepth = this.scenePass.getViewZNode().negate().sub(this.focusDistance);
+    const beauty = this.scenePass.getTextureNode('output');
+    const depthDistance = this.scenePass.getViewZNode().negate().sub(this.focusDistance).abs();
     const screenDistance = length(screenUV.sub(this.center).mul(vec2(this.aspect, 1)));
-    const radial = smoothstep(this.radius.mul(0.95), this.radius.mul(1.9), screenDistance);
-    const spread = signedDepth.abs().sub(SHARP_BAND).max(0).add(radial.mul(FOCAL_LENGTH));
-    // Only geometry genuinely in front of the district uses near-field blur; everything
-    // else blurs as background so it never bleeds over the focused building.
-    const side = select(signedDepth.lessThan(-SHARP_BAND), float(-1), float(1));
-    const focusDepth = this.focusDistance.add(side.mul(spread)).negate();
-    this.effect = dof(
-      this.scenePass.getTextureNode('output'),
-      focusDepth,
-      this.focusDistance,
-      uniform(FOCAL_LENGTH),
-      this.strength,
+    const radial = smoothstep(this.radius.mul(0.95), this.radius.mul(1.65), screenDistance);
+    const depth = smoothstep(3.4, 8, depthDistance);
+    const mask = depth.max(radial);
+    this.blur = gaussianBlur(beauty, this.blurRadius, 2, { resolutionScale: 0.25 });
+    // HDR highlights spread beyond the bright windows before tone mapping.
+    this.glow = gaussianBlur(beauty.sub(1.2).max(0), uniform(2), 2, { resolutionScale: 0.25 });
+    this.pipeline = new RenderPipeline(
+      renderer,
+      mix(beauty, this.blur, mask).add(this.glow.mul(0.45)),
     );
-    this.pipeline = new RenderPipeline(renderer, this.effect);
   }
-  setActive(active: boolean, immediate = false) {
-    this.tween?.kill();
-    this.tween = gsap.to(this.strength, {
-      value: active ? BOKEH : 0,
-      duration: immediate ? 0 : 1.2,
-      ease: 'power2.inOut',
-    });
-  }
-  /** Tracks the focused district's depth and on-screen footprint. */
   update(target: Vector3, worldRadius: number, delta: number) {
     this.camera.getWorldDirection(this.direction);
     const depth = Math.max(
@@ -78,14 +58,15 @@ export class FocusEffect {
     const halfHeight = depth * Math.tan(MathUtils.degToRad(this.camera.fov / 2));
     this.radius.value = (worldRadius / halfHeight) * 0.5;
     this.aspect.value = this.camera.aspect;
+    // Keep the blur radius stable in CSS pixels as device density/adaptive quality changes.
+    this.blurRadius.value = this.renderer.getPixelRatio() * (this.camera.aspect < 1 ? 0.55 : 0.9);
   }
   render() {
-    if (this.strength.value < 0.005) this.renderer.render(this.scene, this.camera);
-    else this.pipeline.render();
+    this.pipeline.render();
   }
   dispose() {
-    this.tween?.kill();
-    this.effect.dispose();
+    this.blur.dispose();
+    this.glow.dispose();
     this.scenePass.dispose();
     this.pipeline.dispose();
   }

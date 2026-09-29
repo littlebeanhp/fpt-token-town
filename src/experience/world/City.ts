@@ -1,11 +1,13 @@
 import {
   AdditiveBlending,
+  Box3,
   Color,
   Group,
-  IcosahedronGeometry,
   InstancedMesh,
+  Matrix4,
   Mesh,
   MeshBasicNodeMaterial,
+  MeshLambertMaterial,
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
@@ -22,6 +24,7 @@ import {
   LOT_SIZE,
   ROAD_WIDTH,
   SIDEWALK_HEIGHT,
+  STREET_BLOCKS,
   blockKey,
   createRandom,
   isDistrictBlock,
@@ -30,11 +33,28 @@ import {
 
 type Box = [x: number, y: number, z: number, w: number, h: number, d: number];
 
-const BODY_COLORS = ['#dfe5e2', '#d3dcd9', '#c9d2d0', '#e4ded4', '#d8d1c6', '#cfd6dc', '#c2cbca'];
-const ROOF_COLORS = ['#aebbba', '#a3adb0', '#b5b0a6', '#9eaaa8'];
+const BODY_COLORS = ['#cbd0ce', '#c2c9c7', '#d5d8d4'];
+const ROOF_COLORS = ['#a6afad', '#9ea8a6', '#b4bab5'];
+const TREE_URLS = {
+  pine: '/models/pin-tree-v1.glb',
+  broadleaf: '/models/tree-v1.glb',
+} as const;
+type TreeKind = keyof typeof TREE_URLS;
+interface TreePlacement {
+  x: number;
+  z: number;
+  key: number;
+  height: number;
+  rotation: number;
+  kind: TreeKind;
+}
+interface TreePart {
+  geometry: BufferGeometry;
+  material: MeshStandardMaterial;
+}
 /** Filler height ranges. The row nearest the camera stays low so it never hides a district. */
 function heightRange(i: number, j: number): [number, number] {
-  if (j === 2 && Math.abs(i) <= 3) return [0.9, 2.1];
+  if (j === 2 && Math.abs(i) <= 3) return [0.7, 1.4];
   if (j === 3 && Math.abs(i) <= 3) return [1.4, 3.2];
   if (Math.abs(i) === 2 && Math.abs(j) <= 1) return [1.6, 4.2];
   if (j <= -2) return [2.4, 7.5];
@@ -42,21 +62,25 @@ function heightRange(i: number, j: number): [number, number] {
 }
 
 /**
- * The procedural city: a filled grid of blocks that extends beyond every locked camera view,
- * so no shot ever reaches an edge. Everything is instanced; district lots keep room for the
- * factories, the core, and two parks.
+ * A compact instanced city. The outer silhouettes fade into camera-relative fog;
+ * street details and trees are reserved for the tour neighbourhood.
  */
 export class City {
   readonly root = new Group();
   private resources = new Resources();
-  private foliage = new IcosahedronGeometry(1, 0);
   private plane = new PlaneGeometry(1, 1);
   private meshes: InstancedMesh[] = [];
   private tinted: TintedInstances[] = [];
+  private treePlacements: TreePlacement[];
+  private treeParts: TreePart[] = [];
+  private treeLoad?: Promise<void>;
+  private treeMatrix = new Matrix4();
+  private disposed = false;
   private dummy = new Object3D();
   private scratch = new Color();
   private lampHeads: MeshStandardMaterial;
   private litWindows: MeshStandardMaterial;
+  private backdrop = new MeshLambertMaterial({ color: '#ffffff' });
   private poolStrength = uniform(0);
   private poolMaterial: MeshBasicNodeMaterial;
 
@@ -95,7 +119,7 @@ export class City {
     this.buildFiller(random);
     this.buildStreets();
     this.buildLamps();
-    this.buildTrees(random);
+    this.treePlacements = this.createTreePlacements(random);
   }
 
   private blocks(range: number, visit: (i: number, j: number) => void) {
@@ -122,7 +146,7 @@ export class City {
     });
     mesh.count = boxes.length;
     mesh.castShadow = castShadow;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = castShadow;
     this.root.add(mesh);
     this.meshes.push(mesh);
     return mesh;
@@ -136,7 +160,7 @@ export class City {
 
   private buildLots(random: () => number) {
     const span = CITY_BLOCKS * 2 + 1;
-    const lots = this.tint(this.resources.box, this.resources.material('#ffffff'), span * span);
+    const lots = this.tint(this.resources.cube, this.resources.material('#ffffff'), span * span);
     const grass = this.tint(this.resources.cube, this.resources.material('#ffffff'), 4);
     this.blocks(CITY_BLOCKS, (i, j) => {
       const district = isDistrictBlock(i, j);
@@ -173,77 +197,41 @@ export class City {
 
   private buildFiller(random: () => number) {
     const bodies: Box[] = [],
-      bodyColors: Color[] = [],
       roofs: Box[] = [],
-      roofColors: Color[] = [],
-      lit: Box[] = [],
-      dark: Box[] = [];
-    const inner = LOT_SIZE - 1.2;
-    const quarter = inner / 4,
-      half = inner / 2 - 0.35;
+      lit: Box[] = [];
+    const bodyColors: Color[] = [],
+      roofColors: Color[] = [];
+    // One plain house silhouette per background lot. No bevels, roof machinery,
+    // window grids or shadow casting: these houses are deliberately out of focus.
     this.blocks(CITY_BLOCKS, (i, j) => {
       if (isDistrictBlock(i, j)) return;
       const [minHeight, maxHeight] = heightRange(i, j);
-      const layout = random();
-      const footprints: [number, number, number, number][] =
-        layout < 0.22
-          ? [[0, 0, inner - 0.6, inner - 0.8]]
-          : layout < 0.48
-            ? [
-                [-quarter, 0, half, inner - 0.8],
-                [quarter, 0, half, inner - 0.8],
-              ]
-            : layout < 0.68
-              ? [
-                  [0, -quarter, inner - 0.6, half],
-                  [0, quarter, inner - 0.6, half],
-                ]
-              : [
-                  [-quarter, -quarter, half, half],
-                  [quarter, -quarter, half, half],
-                  [-quarter, quarter, half, half],
-                  [quarter, quarter, half, half],
-                ];
-      for (const [fx, fz, w, d] of footprints) {
-        const h = minHeight + random() * (maxHeight - minHeight);
-        const x = i * BLOCK_PITCH + fx,
-          z = j * BLOCK_PITCH + fz,
-          top = SIDEWALK_HEIGHT + h;
-        bodies.push([x, SIDEWALK_HEIGHT + h / 2, z, w, h, d]);
-        bodyColors.push(new Color(BODY_COLORS[Math.floor(random() * BODY_COLORS.length)]));
-        const roof = new Color(ROOF_COLORS[Math.floor(random() * ROOF_COLORS.length)]);
-        roofs.push([x, top + 0.08, z, w + 0.16, 0.16, d + 0.16]);
-        roofColors.push(roof);
-        if (random() < 0.45) {
-          roofs.push([
-            x + (random() - 0.5) * w * 0.4,
-            top + 0.4,
-            z + (random() - 0.5) * d * 0.4,
-            0.7,
-            0.5,
-            0.6,
-          ]);
-          roofColors.push(roof.clone().multiplyScalar(0.92));
-        }
-        // Window bands on the faces the locked cameras can see: front and both sides.
-        for (let y = SIDEWALK_HEIGHT + 0.6; y < top - 0.35; y += 0.72) {
-          (random() < 0.62 ? lit : dark).push([x, y, z + d / 2 + 0.02, w * 0.78, 0.26, 0.04]);
-          (random() < 0.62 ? lit : dark).push([x + w / 2 + 0.02, y, z, 0.04, 0.26, d * 0.78]);
-          (random() < 0.62 ? lit : dark).push([x - w / 2 - 0.02, y, z, 0.04, 0.26, d * 0.78]);
-        }
+      const h = minHeight + random() * (maxHeight - minHeight);
+      const x = i * BLOCK_PITCH,
+        z = j * BLOCK_PITCH;
+      const w = 5.4 + random() * 0.8,
+        d = 5.1 + random() * 0.9;
+      const top = SIDEWALK_HEIGHT + h;
+      bodies.push([x, SIDEWALK_HEIGHT + h / 2, z, w, h, d]);
+      roofs.push([x, top + 0.08, z, w + 0.18, 0.16, d + 0.18]);
+      bodyColors.push(new Color(BODY_COLORS[Math.floor(random() * BODY_COLORS.length)]));
+      roofColors.push(new Color(ROOF_COLORS[Math.floor(random() * ROOF_COLORS.length)]));
+      // A single window band on the nearest houses keeps the night skyline readable.
+      if (Math.max(Math.abs(i), Math.abs(j)) === STREET_BLOCKS && h > 1.4) {
+        lit.push([x, SIDEWALK_HEIGHT + h * 0.6, z + d / 2 + 0.015, w * 0.72, 0.28, 0.025]);
       }
     });
-    const white = this.resources.material('#ffffff');
-    this.batch(this.resources.box, white, bodies, bodyColors).name = 'filler-bodies';
-    this.batch(this.resources.box, white, roofs, roofColors).name = 'filler-roofs';
-    this.batch(this.resources.cube, this.litWindows, lit, undefined, false);
-    this.batch(this.resources.cube, this.resources.material('#5f7479'), dark, undefined, false);
+    this.batch(this.resources.cube, this.backdrop, bodies, bodyColors, false).name =
+      'filler-bodies';
+    this.batch(this.resources.cube, this.backdrop, roofs, roofColors, false).name = 'filler-roofs';
+    this.batch(this.resources.cube, this.litWindows, lit, undefined, false).name =
+      'background-window-bands';
   }
 
   private buildStreets() {
     const dashes: Box[] = [],
       stripes: Box[] = [];
-    const reach = 55,
+    const reach = (STREET_BLOCKS + 0.5) * BLOCK_PITCH,
       clear = ROAD_WIDTH / 2 + 1.1;
     const roads: number[] = [];
     for (let k = -CITY_BLOCKS - 1; k <= CITY_BLOCKS; k++) roads.push((k + 0.5) * BLOCK_PITCH);
@@ -259,7 +247,7 @@ export class City {
     const offset = ROAD_WIDTH / 2 + 0.5;
     for (const x of roads)
       for (const z of roads) {
-        if (Math.abs(x) > 36 || Math.abs(z) > 36) continue;
+        if (Math.abs(x) > reach || Math.abs(z) > reach) continue;
         for (let s = 0; s < 6; s++) {
           const across = -0.9 + s * 0.36;
           stripes.push([x + across, 0.006, z - offset, 0.18, 0.012, 0.7]);
@@ -278,7 +266,7 @@ export class City {
       heads: Box[] = [],
       pools: Box[] = [];
     const inset = LOT_HALF - 0.3;
-    this.blocks(5, (i, j) => {
+    this.blocks(STREET_BLOCKS, (i, j) => {
       for (const sx of [-1, 1])
         for (const sz of [-1, 1]) {
           const x = i * BLOCK_PITCH + sx * inset,
@@ -303,11 +291,11 @@ export class City {
     this.meshes.push(poolMesh);
   }
 
-  private buildTrees(random: () => number) {
+  private createTreePlacements(random: () => number): TreePlacement[] {
     const spots: [number, number, number][] = [];
     const add = (i: number, j: number, x: number, z: number) =>
       spots.push([i * BLOCK_PITCH + x, j * BLOCK_PITCH + z, blockKey(i, j)]);
-    this.blocks(6, (i, j) => {
+    this.blocks(1, (i, j) => {
       if (isParkBlock(i, j)) {
         for (let n = 0; n < 9; n++)
           add(
@@ -319,29 +307,99 @@ export class City {
       } else if (isDistrictBlock(i, j)) {
         // Flank the front plaza without touching the building or the visitor queue.
         for (const sx of [-1, 1]) for (const z of [-1.8, 1.5]) add(i, j, sx * (LOT_HALF - 0.6), z);
-      } else if (Math.max(Math.abs(i), Math.abs(j)) >= 3) {
-        // Nearer lots keep their sidewalks clear for pedestrians.
-        for (const x of [-1.8, 1.8]) if (random() < 0.6) add(i, j, x, LOT_HALF - 0.4);
       }
     });
-    const trunks = this.tint(this.resources.cube, this.resources.material('#ffffff'), spots.length);
-    const crowns = this.tint(this.foliage, this.resources.material('#ffffff'), spots.length);
-    const greens = ['#7fae78', '#6f9f6c', '#8cbf7a', '#78a870'];
-    for (const [x, z, key] of spots) {
-      const scale = 0.8 + random() * 0.45;
-      trunks.add(
-        this.matrix([x, SIDEWALK_HEIGHT + 0.24 * scale, z, 0.1, 0.48 * scale, 0.1]),
-        this.scratch.set('#7a5a45'),
-        key,
-      );
-      crowns.add(
-        this.matrix(
-          [x, SIDEWALK_HEIGHT + 0.78 * scale, z, 0.42 * scale, 0.46 * scale, 0.42 * scale],
-          random() * Math.PI,
-        ),
-        this.scratch.set(greens[Math.floor(random() * greens.length)]),
-        key,
-      );
+    return spots.map(([x, z, key], index) => ({
+      x,
+      z,
+      key,
+      height: 1 + random() * 0.45,
+      rotation: random() * Math.PI * 2,
+      kind: index % 2 === 0 ? 'pine' : 'broadleaf',
+    }));
+  }
+
+  /** Loads both authored tree models after the initial city preview, then instances every part. */
+  loadTrees(assetBase = '') {
+    return (this.treeLoad ??= this.buildTrees(assetBase));
+  }
+
+  private async buildTrees(assetBase: string) {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+    const loader = new GLTFLoader();
+    const loaded = await Promise.allSettled(
+      (Object.keys(TREE_URLS) as TreeKind[]).map(async (kind) => {
+        const gltf = await loader.loadAsync(`${assetBase}${TREE_URLS[kind]}`);
+        gltf.scene.updateWorldMatrix(true, true);
+        const bounds = new Box3().setFromObject(gltf.scene);
+        const height = bounds.max.y - bounds.min.y;
+        const normalizer = new Matrix4()
+          .makeScale(1 / height, 1 / height, 1 / height)
+          .multiply(
+            new Matrix4().makeTranslation(
+              -(bounds.min.x + bounds.max.x) / 2,
+              -bounds.min.y,
+              -(bounds.min.z + bounds.max.z) / 2,
+            ),
+        );
+        const parts: TreePart[] = [];
+        gltf.scene.traverse((node) => {
+          if (!(node as Mesh).isMesh) return;
+          const mesh = node as Mesh;
+          const geometry = mesh.geometry.clone();
+          geometry.applyMatrix4(normalizer.clone().multiply(mesh.matrixWorld));
+          const loadedMaterial = (
+            Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
+          ) as MeshStandardMaterial;
+          const materialName = loadedMaterial.name.toLowerCase();
+          const color = materialName.includes('folha')
+            ? '#6f9f6c'
+            : materialName.includes('tronco')
+              ? '#7a5a45'
+              : loadedMaterial.color;
+          const material = new MeshStandardMaterial({
+            color,
+            vertexColors: geometry.hasAttribute('color'),
+            roughness: loadedMaterial.roughness,
+            metalness: loadedMaterial.metalness,
+            side: loadedMaterial.side,
+          });
+          parts.push({ geometry, material });
+        });
+        if (!parts.length) throw new Error(`${TREE_URLS[kind]} contains no meshes`);
+        return { kind, parts };
+      }),
+    );
+    if (this.disposed) {
+      for (const result of loaded)
+        if (result.status === 'fulfilled')
+          for (const part of result.value.parts) {
+            part.geometry.dispose();
+            part.material.dispose();
+          }
+      return;
+    }
+    for (const result of loaded) {
+      if (result.status === 'rejected') {
+        console.warn('City: a tree model could not load', result.reason);
+        continue;
+      }
+      const { kind, parts } = result.value;
+      const placements = this.treePlacements.filter((placement) => placement.kind === kind);
+      for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+        const part = parts[partIndex];
+        this.treeParts.push(part);
+        const batch = this.tint(part.geometry, part.material, placements.length);
+        batch.mesh.name = `${kind}-trees-${partIndex}`;
+        for (const placement of placements) {
+          this.dummy.position.set(placement.x, SIDEWALK_HEIGHT, placement.z);
+          this.dummy.rotation.set(0, placement.rotation, 0);
+          this.dummy.scale.setScalar(placement.height);
+          this.dummy.updateMatrix();
+          this.treeMatrix.copy(this.dummy.matrix);
+          batch.add(this.treeMatrix, this.scratch.set('#ffffff'), placement.key);
+        }
+      }
     }
   }
 
@@ -355,13 +413,18 @@ export class City {
     this.poolStrength.value = value * 0.55;
   }
   dispose() {
+    this.disposed = true;
     this.meshes.forEach((mesh) => mesh.dispose());
     this.tinted.forEach((batch) => batch.dispose());
-    this.foliage.dispose();
+    this.treeParts.forEach(({ geometry, material }) => {
+      geometry.dispose();
+      material.dispose();
+    });
     this.plane.dispose();
     this.lampHeads.dispose();
     this.litWindows.dispose();
     this.poolMaterial.dispose();
+    this.backdrop.dispose();
     this.resources.dispose();
   }
 }

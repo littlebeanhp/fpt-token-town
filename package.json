@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "npx --yes serve@14 out --listen 3000",
     "typecheck": "tsc --noEmit",
+    "optimize:glb": "node scripts/optimize-glb.mjs",
     "test": "tsx --test tests/*.test.ts",
     "deploy:cloudflare": "npm run build && npx --yes wrangler@4 deploy",
     "deploy:docker": "sh scripts/deploy-docker.sh"

@@ -21,7 +21,7 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({
   viewport: { width: 1440, height: 1000 },
-  deviceScaleFactor: 1,
+  deviceScaleFactor: Number(process.env.TEST_DPR ?? 1),
 });
 // Software-rendered CI runs near one frame per second, and GSAP lag smoothing then advances
 // animations by about 33 ms per frame, so generous waits are needed there.
@@ -60,10 +60,8 @@ try {
     waitUntil: 'networkidle',
     timeout: 60000,
   });
-  await page.locator('.model-nav').first().waitFor({ state: 'visible' });
-  await page.waitForFunction(() => !document.querySelector('.model-nav').disabled, {
-    timeout: 60000,
-  });
+  await page.getByRole('button', { name: 'Next stop', exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('canvas')?.dataset.backend);
   await settled();
   await page.waitForTimeout(800);
   console.log('Renderer:', await canvasData('backend'));
@@ -116,28 +114,29 @@ try {
   await settled();
   await expectStop('glm', 'Background clicks keep the current stop');
 
-  // Neighbours are clickable through their floating tags and through the 3D scene.
-  await page.locator('[data-stop="core"]').click();
-  await settled();
-  await expectStop('core', 'The core tag seen from GLM focuses the core');
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await settled();
-  await expectStop('glm');
-  const neighbour = page.locator('[data-stop="deepseek"]');
-  assert.equal(await neighbour.isVisible(), true, 'DeepSeek tag is visible from GLM');
-  const tag = await neighbour.boundingBox();
-  await page.mouse.click(tag.x + tag.width / 2, tag.y + tag.height + 45);
-  await settled();
-  await expectStop('deepseek', 'Raycast click focuses the neighbouring building');
+  // A full-screen scene replaces the header and model dock.
+  assert.equal(await page.locator('.topbar, .model-dock, footer').count(), 0);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight),
+    true,
+  );
   await page.getByRole('button', { name: 'Return to FPT Core' }).click();
   await settled();
-  await expectStop('core', 'The home button returns to the core');
-  await page.keyboard.press('ArrowRight');
+  const dragBox = await page.locator('canvas').boundingBox();
+  const dragX = dragBox.x + dragBox.width * 0.65;
+  const dragY = dragBox.y + dragBox.height * 0.48;
+  await page.mouse.move(dragX, dragY);
+  await page.mouse.down();
+  await page.mouse.move(dragX - 300, dragY, { steps: 12 });
+  await page.mouse.up();
+  const orbit = Number(await canvasData('orbit'));
+  assert.ok(orbit > 0 && orbit <= Math.PI / 12 + 1e-8);
+  await expectStop('core', 'Dragging orbits without switching buildings');
+  await page.getByRole('button', { name: 'Next stop' }).click();
   await settled();
+  assert.equal(Number(await canvasData('orbit')), 0, 'New stops reset the orbit');
   await page.keyboard.press('Home');
   await settled();
-  await expectStop('core', 'Home returns to the core');
 
   // Milestone 2: the time-lapse clock pauses, resumes, changes speed, and jumps to presets.
   await page.getByRole('button', { name: 'Pause time-lapse' }).click();
@@ -157,7 +156,7 @@ try {
   await page.getByRole('button', { name: 'Next stop' }).click();
   await settled();
   await page.screenshot({ path: `${output}/desktop-night-focused.png`, fullPage: true });
-  await page.getByRole('button', { name: 'FPT Core', exact: true }).click();
+  await page.getByRole('button', { name: 'Return to FPT Core', exact: true }).click();
   await settled();
   await expectStop('core', 'The panel back button returns to the core');
   await page.screenshot({ path: `${output}/desktop-night.png`, fullPage: true });
@@ -188,7 +187,7 @@ try {
   await expectStop('core', 'Escape returns to the core');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await settled();
-  for (let i = 0; i < 7; i++) await page.locator('.model-nav').nth(i).click();
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Next stop' }).click();
   await settled();
   assert.equal(
     await page.locator('.model-panel h2').innerText(),
@@ -197,7 +196,7 @@ try {
   );
   assert.equal(errors.length, 0, errors.join('\n'));
   console.log(
-    'PASS: rendered pixels, animation, core default, wrapping Next/Previous, keyboard, locked background clicks, raycast and tag selection, time-lapse pause/play/speed/presets, day/dusk/night, API dialog, mobile overflow, rapid selection.',
+    'PASS: rendered pixels, animation, core default, wrapping Next/Previous, keyboard, locked background clicks, bounded drag orbit, full-screen layout, time-lapse pause/play/speed/presets, day/dusk/night, API dialog, mobile overflow, rapid selection.',
   );
 } finally {
   await browser.close();

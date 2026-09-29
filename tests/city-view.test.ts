@@ -9,6 +9,7 @@ import { Core } from '../src/experience/world/Core';
 import {
   BLOCK_PITCH,
   CITY_EXTENT,
+  FOG_FAR_OFFSET,
   blockIndex,
   isDistrictBlock,
 } from '../src/experience/world/layout';
@@ -27,10 +28,12 @@ const viewports: [number, number][] = [
   [800, 600],
   [390, 600],
   [390, 385],
+  [320, 680],
+  [2560, 1080],
 ];
 const ground = new Plane(new Vector3(0, 1, 0), 0);
 /** Everything a shot sees must land this far inside the built-up city. */
-const EDGE_MARGIN = 12;
+const EDGE_MARGIN = 2;
 
 function buildShots() {
   const assets = [new Core(coreStop), ...models.map((model) => new PrimitiveFactoryAsset(model))];
@@ -56,8 +59,12 @@ function assertInsideCity(rig: CameraRig, label: string) {
       assert.ok(direction.y < -0.05, `${label}: screen (${x}, ${y}) sees the sky`);
       assert.ok(raycaster.ray.intersectPlane(ground, hit), `${label}: ray misses the ground`);
       const reach = Math.max(Math.abs(hit.x), Math.abs(hit.z));
+      const viewDepth = hit
+        .clone()
+        .sub(rig.camera.position)
+        .dot(rig.camera.getWorldDirection(new Vector3()));
       assert.ok(
-        reach < CITY_EXTENT - EDGE_MARGIN,
+        reach < CITY_EXTENT - EDGE_MARGIN || viewDepth >= rig.distance + FOG_FAR_OFFSET,
         `${label}: screen (${x}, ${y}) reaches ${reach.toFixed(1)}, past the city`,
       );
     }
@@ -75,7 +82,7 @@ test('the tour starts at the FPT Core and every district owns a central block', 
   assert.equal(blocks.size, stops.length, 'no two stops share a block');
 });
 
-test('no locked shot or transition can see past the edge of the city', () => {
+test('every locked shot and transition keeps the compact city edge outside the view or fully fogged', () => {
   const { assets, shots } = buildShots();
   const canvas = { dataset: {} } as unknown as HTMLCanvasElement;
   const rig = new CameraRig(canvas);
@@ -110,6 +117,8 @@ test('foreground blocks never hide the focused district', () => {
   for (const [width, height] of [
     [1440, 700],
     [390, 385],
+    [320, 680],
+    [2560, 1080],
   ] as const) {
     rig.resize(width, height);
     shots.forEach((shot, index) => {

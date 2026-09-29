@@ -1,27 +1,19 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowDownLeft,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
-  Box,
-  Braces,
-  Check,
   ChevronRight,
   Cpu,
   House,
   Layers3,
   Moon,
-  Network,
   Pause,
   Play,
   Sun,
   Sunrise,
   Sunset,
-  Terminal,
-  Waypoints,
-  Zap,
 } from 'lucide-react';
 import { models, stops } from '@/data/models';
 import { DEFAULT_SPEED, START_HOURS, formatClock, nextSpeed, phaseAt } from '@/data/clock';
@@ -29,15 +21,6 @@ import type { ClockState, DayPhase, DayPreset, StopId } from '@/types/factory';
 import type { Experience } from '@/experience/core/Experience';
 import { ApiDialog } from './ApiDialog';
 
-const icons = {
-  core: Waypoints,
-  deepseek: Zap,
-  glm: Braces,
-  qwen: Box,
-  minimax: Layers3,
-  llama: Network,
-  'gpt-oss': Cpu,
-};
 const phaseIcons: Record<DayPhase, typeof Sun> = {
   dawn: Sunrise,
   day: Sun,
@@ -56,7 +39,6 @@ const initialClock: ClockState = {
   paused: false,
   speed: DEFAULT_SPEED,
 };
-const pad = (value: number) => String(value).padStart(2, '0');
 
 export function TokenTown() {
   const host = useRef<HTMLDivElement>(null),
@@ -64,6 +46,7 @@ export function TokenTown() {
     experience = useRef<Experience | null>(null);
   const [selected, setSelected] = useState<StopId>('core');
   const [clock, setClock] = useState<ClockState>(initialClock);
+  const [preview, setPreview] = useState(false);
   const [ready, setReady] = useState(false),
     [error, setError] = useState('');
   const [api, setApi] = useState(false),
@@ -80,12 +63,14 @@ export function TokenTown() {
     let cancelled = false;
     let instance: Experience | undefined;
     setReady(false);
+    setPreview(false);
     setSelected('core');
     setError('');
     import('@/experience/core/Experience')
       .then(({ Experience }) => {
         if (cancelled || !host.current || !labels.current) return;
         instance = new Experience(host.current, labels.current, {
+          onPreview: () => setPreview(true),
           onSelect: setSelected,
           onClock: setClock,
           onReady: () => setReady(true),
@@ -127,26 +112,6 @@ export function TokenTown() {
 
   return (
     <main className={`town ${clock.night ? 'night' : ''} ${model ? 'is-focused' : ''}`}>
-      <header className="topbar">
-        <a href="/" className="brand" aria-label="FPT AI Token Factory home">
-          <span className="fpt-logo">
-            <i>F</i>
-            <i>P</i>
-            <i>T</i>
-          </span>
-          <span className="brand-divider" />
-          <span>AI TOKEN FACTORY</span>
-        </a>
-        <div className="topbar-right">
-          <span className="preview-badge">
-            <span className="status-dot" /> FACTORY PREVIEW
-          </span>
-          <button className="api-link" onClick={() => setApi(true)}>
-            Get API access <ArrowUpRight size={16} />
-          </button>
-        </div>
-      </header>
-
       <section className="city-stage" aria-label="AI factory city">
         <div className="scene-host" ref={host} />
         <div className="scene-scrim" aria-hidden />
@@ -176,28 +141,13 @@ export function TokenTown() {
           ))}
         </div>
 
-        {!model && (
-          <div className="intro" data-overlay>
-            <div className="eyebrow">
-              <span className="tiny-cross">+</span> INTELLIGENCE, IN MOTION
-            </div>
-            <h1>
-              FPT AI
-              <br />
-              Token Factory<span>.</span>
-            </h1>
-            <p>
-              A city of models.
-              <br />
-              One powerful connection.
-            </p>
-            <div className="intro-rule" />
-            <button className="tour-button" disabled={!ready} onClick={() => step(1)}>
-              Tour the districts <ArrowRight size={14} />
-            </button>
+        <div className="town-brand" data-overlay>
+          <span className="town-emblem">✦</span>
+          <div>
+            <h1>Token Town</h1>
+            <p>A city of models. One connection.</p>
           </div>
-        )}
-
+        </div>
         <nav className="tour-nav" aria-label="City tour" data-overlay>
           <button
             className="tour-step"
@@ -229,47 +179,54 @@ export function TokenTown() {
           </button>
         </nav>
 
-        {model && (
-          <aside
-            className="model-panel"
-            key={model.id}
-            aria-label={`${model.name} details`}
-            data-overlay
-          >
-            <button className="back-button" onClick={() => select('core')}>
-              <ArrowLeft size={15} /> FPT Core
-            </button>
-            <div className="model-category" style={{ color: model.color }}>
-              <span className="status-dot" />
-              {model.category}
+        <aside
+          className="model-panel"
+          key={stop.id}
+          aria-label={`${stop.name} details`}
+          data-overlay
+        >
+          <div className="panel-heading">
+            <span className="model-emblem" style={{ color: stop.color }}>
+              <Layers3 size={24} />
+            </span>
+            <div>
+              <span className="model-category">{stop.category}</span>
+              <h2>{stop.name}</h2>
             </div>
-            <h2>{model.name}</h2>
-            <p className="model-description">{model.description}</p>
-            <dl>
-              <div>
-                <dt>Context length</dt>
-                <dd>{model.context}</dd>
-              </div>
-              <div>
-                <dt>Token usage</dt>
-                <dd>
-                  -- <span>tokens</span>
-                </dd>
-              </div>
-              <div>
-                <dt>Route status</dt>
-                <dd className="route-status">
-                  <Check size={13} /> Simulation active
-                </dd>
-              </div>
-            </dl>
-            <button className="primary-button" onClick={() => setApi(true)}>
-              <Terminal size={16} /> Explore API <ArrowUpRight size={16} />
+            <span className="simulation-badge">Simulation</span>
+          </div>
+          <div className="usage-summary">
+            <strong>—</strong>
+            <span>tokens this week</span>
+            <span className="data-pending">Usage data coming soon</span>
+          </div>
+          <dl className="model-stats">
+            <div>
+              <dt>Context</dt>
+              <dd>
+                {model?.context.startsWith('Pending')
+                  ? 'Not available'
+                  : (model?.context ?? 'Token router')}
+              </dd>
+            </div>
+            <div>
+              <dt>Input / output · 1M</dt>
+              <dd>Not available</dd>
+            </div>
+            <div>
+              <dt>Capabilities</dt>
+              <dd>{model ? 'Not available' : 'Model routing'}</dd>
+            </div>
+          </dl>
+          <div className="panel-footer">
+            <span>
+              <span className="status-dot" /> {ready ? 'City online' : 'Connecting'}
+            </span>
+            <button onClick={() => setApi(true)} aria-label="Get API access">
+              Explore API <ArrowUpRight size={14} />
             </button>
-            <span className="panel-note">Model district / 0{models.indexOf(model) + 1}</span>
-          </aside>
-        )}
-
+          </div>
+        </aside>
         <div className="clock" role="group" aria-label="City time-lapse" data-overlay>
           <span className="clock-readout" title="City time">
             <PhaseIcon size={15} />
@@ -313,7 +270,7 @@ export function TokenTown() {
           </button>
         </div>
 
-        {!ready && (
+        {(!preview || error) && (
           <div className="loading-screen" role="status">
             {error ? (
               <>
@@ -334,61 +291,8 @@ export function TokenTown() {
           </div>
         )}
 
-        <div className="scene-bottom">
-          <div className="city-status" data-overlay>
-            <span className="status-dot" />
-            <span>{ready ? 'CITY ONLINE' : 'CONNECTING'}</span>
-            <span className="status-separator">/</span>
-            <span>06 MODEL DISTRICTS</span>
-            <span className="status-separator">/</span>
-            <span className="flow-mark" /> <span>SIMULATED TOKEN TRAFFIC</span>
-          </div>
-        </div>
+        <div className="orbit-hint">Drag to look around · ← → to change buildings</div>
       </section>
-
-      <section className="model-dock" aria-label="Model navigator">
-        <div className="dock-heading">
-          <span>THE MODEL DISTRICTS</span>
-          <span>
-            Six specialists. One ecosystem. <ArrowDownLeft size={14} />
-          </span>
-        </div>
-        <nav className="model-list" aria-label="Select a city stop">
-          {stops.map((item) => {
-            const Icon = icons[item.id];
-            const number =
-              item.id === 'core' ? 'HOME' : pad(models.findIndex((m) => m.id === item.id) + 1);
-            return (
-              <button
-                className={`model-nav ${selected === item.id ? 'selected' : ''}`}
-                key={item.id}
-                aria-pressed={selected === item.id}
-                disabled={!ready}
-                onClick={() => select(item.id)}
-                style={{ '--model-color': item.color } as React.CSSProperties}
-              >
-                <div className="nav-top">
-                  <Icon size={19} strokeWidth={1.7} />
-                  <span>{number}</span>
-                  <ArrowUpRight className="nav-arrow" size={15} />
-                </div>
-                <strong>{item.name}</strong>
-                <span className="nav-category">{item.category}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </section>
-      <footer>
-        <span>
-          FPT<span className="footer-ai"> AI</span> <span className="footer-divider">/</span>{' '}
-          Possibilities, connected.
-        </span>
-        <span>
-          A little city. A bigger future.
-          <span className="footer-square" />
-        </span>
-      </footer>
       <div className="sr-only" aria-live="polite">
         {`${stop.name} in focus, stop ${stopIndex + 1} of ${stops.length}`}
       </div>

@@ -12,6 +12,7 @@ BUILD=$(mktemp -d)
 trap 'rm -rf "$BUILD"' EXIT
 tar -C "$SRC" \
   --exclude=node_modules --exclude=.next --exclude=out --exclude=.git \
+  --exclude=.local-assets \
   --exclude=test-results --exclude=playwright-report --exclude='*.tsbuildinfo' \
   -cf - . | tar -C "$BUILD" -xf -
 
