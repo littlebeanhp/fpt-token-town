@@ -65,7 +65,7 @@ test('one person exchanges with a fixed runner every half-second', () => {
   const site = sites()[0],
     layout = createQueueLayout(site),
     slots = queueSlotCount(layout),
-    total = slots + RUNNERS_PER_QUEUE,
+    total = slots + RUNNERS_PER_QUEUE + 1,
     pose = { x: 0, z: 0, heading: 0 };
   sampleQueueFlow(layout, 0, pose);
   assert.ok(pose.x < layout.path.at(-1)!.x, 'a new visitor approaches the open line entrance');
@@ -81,17 +81,31 @@ test('one person exchanges with a fixed runner every half-second', () => {
   assert.equal(
     queueTrackIndex(0, QUEUE_STEP_SECONDS, slots),
     total - 1,
-    'the front person immediately becomes the newest runner',
+    'the front person stays in the indoor slot before becoming a runner',
   );
   assert.equal(
     queueTrackIndex(slots, QUEUE_STEP_SECONDS, slots),
     slots - 1,
     'the oldest runner rejoins the back of the queue at the same event',
   );
+  assert.equal(
+    queueTrackIndex(0, 2 * QUEUE_STEP_SECONDS, slots),
+    total - 2,
+    'the prior indoor visitor exits only on the next exchange',
+  );
+  assert.notEqual(
+    queueTrackIndex(1, 2 * QUEUE_STEP_SECONDS, slots),
+    total - 2,
+    'the new entrant is distinct from the exiting visitor',
+  );
   for (const time of [0, 0.5, 1.25, 4.8]) {
     let runners = 0;
     for (let person = 0; person < total; person++)
-      if (queueTrackIndex(person, time, slots) >= slots) runners++;
+      if (
+        queueTrackIndex(person, time, slots) >= slots &&
+        queueTrackIndex(person, time, slots) < total - 1
+      )
+        runners++;
     assert.equal(runners, RUNNERS_PER_QUEUE, 'runner count stays fixed around every building');
   }
   assert.equal(

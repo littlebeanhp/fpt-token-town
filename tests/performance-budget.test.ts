@@ -4,7 +4,13 @@ import test from 'node:test';
 import { InstancedMesh, Matrix4, Mesh, Vector3 } from 'three/webgpu';
 import { AdaptiveResolution, renderPixelRatio } from '../src/experience/core/RenderQuality';
 import { City } from '../src/experience/world/City';
-import { CITY_BLOCKS, LOT_SIZE } from '../src/experience/world/layout';
+import {
+  BLOCK_PITCH,
+  CITY_BLOCKS,
+  LAMP_OFFSETS,
+  LOT_SIZE,
+  isParkBlock,
+} from '../src/experience/world/layout';
 
 if (!globalThis.ProgressEvent)
   Object.defineProperty(globalThis, 'ProgressEvent', {
@@ -45,7 +51,7 @@ test('the compact backdrop stays within its geometry budget and keeps real house
   city.dispose();
 });
 
-test('authored pine and broadleaf GLBs replace every procedural tree with instanced meshes', async () => {
+test('three authored tree GLBs replace every procedural tree with instanced meshes', async () => {
   const nativeFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -61,16 +67,39 @@ test('authored pine and broadleaf GLBs replace every procedural tree with instan
     const pine = city.root.getObjectByName('pine-trees-0') as InstancedMesh;
     const broadleafCrown = city.root.getObjectByName('broadleaf-trees-0') as InstancedMesh;
     const broadleafTrunk = city.root.getObjectByName('broadleaf-trees-1') as InstancedMesh;
-    assert.equal(pine.count, 23);
-    assert.equal(broadleafCrown.count, 23);
-    assert.equal(broadleafTrunk.count, 23);
-    const treeTriangles = [pine, broadleafCrown, broadleafTrunk].reduce(
+    const quaternius = city.root.getObjectByName('quaternius-trees-0') as InstancedMesh;
+    for (const mesh of [pine, broadleafCrown, broadleafTrunk, quaternius])
+      assert.equal(mesh.count, 13);
+    const planters = city.root.getObjectByName('tree-planters') as InstancedMesh;
+    assert.equal(planters.count, 39);
+    const buildingSides = new Map<string, number[]>();
+    const matrix = new Matrix4();
+    const position = new Vector3();
+    for (let index = 0; index < planters.count; index++) {
+      planters.getMatrixAt(index, matrix);
+      position.setFromMatrixPosition(matrix);
+      const i = Math.round(position.x / BLOCK_PITCH);
+      const j = Math.round(position.z / BLOCK_PITCH);
+      if (isParkBlock(i, j)) continue;
+      const key = `${i},${j}`;
+      const sides = buildingSides.get(key) ?? [0, 0];
+      sides[position.x < i * BLOCK_PITCH ? 0 : 1]++;
+      buildingSides.set(key, sides);
+    }
+    assert.equal(buildingSides.size, 7);
+    for (const sides of buildingSides.values()) assert.deepEqual(sides, [1, 2]);
+    assert.equal(LAMP_OFFSETS.length, 4);
+    assert.ok(
+      LAMP_OFFSETS.every(([, z]) => z >= 0),
+      'rear corner lamps are removed',
+    );
+    const treeTriangles = [pine, broadleafCrown, broadleafTrunk, quaternius].reduce(
       (total, mesh) =>
         total +
         ((mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3) * mesh.count,
       0,
     );
-    assert.ok(treeTriangles < 25_000, `tree triangles: ${treeTriangles}`);
+    assert.ok(treeTriangles < 30_000, `tree triangles: ${treeTriangles}`);
   } finally {
     city.dispose();
     globalThis.fetch = nativeFetch;

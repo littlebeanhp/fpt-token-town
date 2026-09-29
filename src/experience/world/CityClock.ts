@@ -89,7 +89,10 @@ export function sampleLighting(hours: number, out: LightingSample) {
   out.lightColor.copy(a.light).lerp(b.light, t);
   out.hemiSky.copy(a.hemiSky).lerp(b.hemiSky, t);
   out.hemiGround.copy(a.hemiGround).lerp(b.hemiGround, t);
-  out.hemiIntensity = MathUtils.lerp(a.hemi, b.hemi, t);
+  // A modest sky/ground fill preserves the contrast of direct lighting and shadows.
+  // Retain daytime contrast, with more sky fill in dim evening/night keyframes.
+  const hemi = MathUtils.lerp(a.hemi, b.hemi, t);
+  out.hemiIntensity = hemi * MathUtils.lerp(0.65, 0.25, MathUtils.smoothstep(hemi, 0.8, 2.4));
 
   // The sun rises in the east (+x) at 06:00 and sets in the west at 18:00. After sunset the
   // same continuous path acts as moonlight, so the light direction never jumps.
@@ -97,7 +100,7 @@ export function sampleLighting(hours: number, out: LightingSample) {
   const height = Math.sin(arc);
   out.lightDirection.set(Math.cos(arc) * 0.85, Math.max(Math.abs(height), 0.32), 0.5).normalize();
   const sun = MathUtils.smoothstep(height, -0.02, 0.35) * 3.3;
-  const moon = (1 - MathUtils.smoothstep(height, -0.3, 0.05)) * 0.55;
+  const moon = (1 - MathUtils.smoothstep(height, -0.3, 0.05)) * 0.4;
   out.lightIntensity = sun + moon;
   out.night = 1 - MathUtils.smoothstep(height, -0.2, 0.3);
   return out;

@@ -9,7 +9,7 @@ import {
   Vector3,
 } from 'three/webgpu';
 import { float, smoothstep, uniform, uv } from 'three/tsl';
-import type { VehicleAsset, VehicleKind, VehicleLight } from '@/types/vehicle';
+import type { VehicleAsset, VehicleKind, VehicleLight, VehiclePart } from '@/types/vehicle';
 import { TintedInstances } from '../core/TintedInstances';
 import { PrimitiveVehicleAsset } from '../loaders/PrimitiveVehicleAsset';
 import {
@@ -86,12 +86,8 @@ export class Traffic {
   private focusZ = 0;
   private focusDirty = true;
 
-  constructor(
-    assets: readonly VehicleAsset[] = [
-      new PrimitiveVehicleAsset('car'),
-      new PrimitiveVehicleAsset('bike'),
-    ],
-  ) {
+  constructor(assets?: readonly VehicleAsset[], riderParts?: VehiclePart[]) {
+    assets ??= [new PrimitiveVehicleAsset('car'), new PrimitiveVehicleAsset('bike', riderParts)];
     this.assets = assets;
     this.root.name = 'vehicle-traffic';
     const byKind = new Map<VehicleKind, { asset: VehicleAsset; batches: TintedInstances[] }>();
@@ -136,7 +132,7 @@ export class Traffic {
       // One cruising speed per lane preserves the generous spacing without overtaking.
       const speed = 1.15 + random() * 0.75;
       for (let n = 0; n < count; n++) {
-        const { asset, batches } = byKind.get(random() < 0.14 ? 'bike' : 'car')!;
+        const { asset, batches } = byKind.get(n === 0 ? 'bike' : 'car')!;
         const paint = PAINT[Math.floor(random() * PAINT.length)];
         let index = 0;
         for (let p = 0; p < batches.length; p++) {

@@ -11,7 +11,10 @@ export class PrimitiveVehicleAsset implements VehicleAsset {
   private body = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.7 });
   private lights = new MeshBasicMaterial({ color: '#ffffff' });
 
-  constructor(readonly kind: VehicleKind) {
+  constructor(
+    readonly kind: VehicleKind,
+    private readonly riderParts?: VehiclePart[],
+  ) {
     const car = kind === 'car';
     this.rearLights = (car ? [-0.16, 0.16] : [0]).map((x) => ({
       position: [x, car ? 0.24 : 0.27, car ? -0.4975 : -0.265] as const,
@@ -66,14 +69,19 @@ export class PrimitiveVehicleAsset implements VehicleAsset {
         [0, 0.34, -0.09, 0.19, 0.055, 0.26],
         [0, 0.46, 0.23, 0.3, 0.035, 0.045],
       ]);
-      part('rider', '#738ea0', [
-        [0, 0.5, -0.06, 0.22, 0.26, 0.15],
-        [-0.1, 0.3, 0.02, 0.065, 0.23, 0.1],
-        [0.1, 0.3, 0.02, 0.065, 0.23, 0.1],
-        [-0.12, 0.48, 0.1, 0.055, 0.07, 0.23],
-        [0.12, 0.48, 0.1, 0.055, 0.07, 0.23],
-      ]);
-      part('helmet', '#e6dccb', [[0, 0.7, -0.03, 0.2, 0.19, 0.2]]);
+      if (riderParts) this.parts.push(...riderParts);
+      else {
+        part('rider', '#00b14f', [
+          [0, 0.5, -0.06, 0.22, 0.26, 0.15],
+          [-0.1, 0.3, 0.02, 0.065, 0.23, 0.1],
+          [0.1, 0.3, 0.02, 0.065, 0.23, 0.1],
+          [-0.12, 0.48, 0.1, 0.055, 0.07, 0.23],
+          [0.12, 0.48, 0.1, 0.055, 0.07, 0.23],
+        ]);
+        part('helmet', '#00b14f', [[0, 0.7, -0.03, 0.2, 0.19, 0.2]]);
+        part('grab-delivery-box', '#00b14f', [[0, 0.5, -0.29, 0.28, 0.28, 0.22]]);
+        part('grab-white-mark', '#ffffff', [[0, 0.52, -0.405, 0.16, 0.045, 0.012]]);
+      }
       part('headlight', '#fff0c6', [[0, 0.44, 0.268, 0.09, 0.075, 0.02]], true);
     }
     // Bulb geometry and trail origins share one source of truth.
@@ -93,6 +101,8 @@ export class PrimitiveVehicleAsset implements VehicleAsset {
   }
   dispose() {
     for (const part of this.parts) part.geometry.dispose();
+    for (const material of new Set(this.riderParts?.map((part) => part.material)))
+      material.dispose();
     this.body.dispose();
     this.lights.dispose();
   }

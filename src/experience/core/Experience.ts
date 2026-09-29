@@ -208,7 +208,7 @@ export class Experience {
       await yieldToBrowser();
       if (this.disposed) return;
       this.simulation = new CPUTokenSimulation(this.factories, new Vector3(...coreStop.position));
-      this.traffic = new Traffic();
+      this.traffic = new Traffic(undefined, this.crowd.createGrabRiderParts());
       this.traffic.update(0, this.reduced);
       this.scene.add(
         this.crowd.root,
@@ -267,6 +267,12 @@ export class Experience {
     if (index < 0) return;
     this.selectedIndex = index;
     const stop = this.stops[index];
+    const facadeBounds = new Box3().setFromObject(stop.asset.root);
+    this.lighting.setFacade(
+      stop.definition.position[0],
+      facadeBounds.min.y + (facadeBounds.max.y - facadeBounds.min.y) * 0.35,
+      facadeBounds.max.z + 0.08,
+    );
     this.rig.focus(stop.shot, immediate);
     this.traffic?.setFocus(stop.definition.position[0], stop.definition.position[2]);
     this.emphasisTween?.kill();
