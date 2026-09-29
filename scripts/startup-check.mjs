@@ -88,6 +88,8 @@ try {
   await page.getByRole('button', { name: 'Night mode', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('canvas')?.dataset.lighting === 'night');
   await page.screenshot({ path: 'test-results/optimized-desktop-night.png' });
+  // Release the desktop GPU workload before checking the independent mobile scene.
+  await page.close();
   const mobile = await browser.newPage({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 3,

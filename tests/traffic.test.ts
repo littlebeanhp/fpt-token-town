@@ -76,7 +76,9 @@ test('near traffic moves, distant traffic pauses, and reduced motion removes tra
   const traffic = new Traffic();
   const cars = mesh(traffic, 'traffic-car-body');
   const bikes = mesh(traffic, 'traffic-bike-body');
-  assert.ok(bikes.count > 0 && bikes.count < cars.count / 3, 'bikes are occasional');
+  assert.equal(bikes.count, TRAFFIC_LANES.length, 'each road loop has a Grab motorbike');
+  assert.ok(cars.count >= bikes.count, 'car traffic remains present');
+  assert.equal(mesh(traffic, 'traffic-bike-grab-delivery-box').count, bikes.count);
   const before = Array.from({ length: cars.count }, (_, i) => matrixAt(cars, i));
   traffic.update(1 / 60);
   let moving = 0,

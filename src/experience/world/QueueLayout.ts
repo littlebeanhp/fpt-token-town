@@ -26,16 +26,16 @@ export const QUEUE_INSIDE_DISTANCE = 0.55;
 /** One queue exchange happens every half-second: one person enters and one runner returns. */
 export const QUEUE_STEP_SECONDS = 0.5;
 /** Fixed number of people running around each building before they rejoin its queue. */
-export const RUNNERS_PER_QUEUE = 10;
+export const RUNNERS_PER_QUEUE = 18;
 
 export function queueSlotCount(layout: QueueLayout) {
   return Math.floor((layout.length + QUEUE_ARRIVAL_DISTANCE) / QUEUE_SPACING);
 }
 
-/** Track 0 is the doorway, followed by queue slots, then the fixed runner circuit. */
+/** Track 0 is the doorway, followed by queue slots, then the fixed runner circuit and one occupied indoor slot. */
 export function queueTrackIndex(person: number, elapsed: number, slots: number) {
-  const total = slots + RUNNERS_PER_QUEUE;
-  return ((person - Math.floor(elapsed / QUEUE_STEP_SECONDS)) % total + total) % total;
+  const total = slots + RUNNERS_PER_QUEUE + 1;
+  return (((person - Math.floor(elapsed / QUEUE_STEP_SECONDS)) % total) + total) % total;
 }
 
 /** One compact serpentine queue. People and rope barriers use this same layout. */
