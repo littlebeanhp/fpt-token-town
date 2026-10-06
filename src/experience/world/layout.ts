@@ -15,6 +15,15 @@ export const FOG_NEAR_OFFSET = 8;
 export const FOG_FAR_OFFSET = 24;
 /** Detailed streets and lamps only surround the tour districts. */
 export const STREET_BLOCKS = 2;
+/** Two front corners and two side lanterns; the two far/rear corners stay open. */
+export const LAMP_HEAD_HEIGHT = 1.65;
+const LAMP_INSET = LOT_HALF - 0.3;
+export const LAMP_OFFSETS: readonly (readonly [number, number])[] = [
+  [-LAMP_INSET, LAMP_INSET],
+  [LAMP_INSET, LAMP_INSET],
+  [-LAMP_INSET, 0],
+  [LAMP_INSET, 0],
+];
 /** The central 3x3 blocks hold the core, the six districts, and two parks. */
 const DISTRICT_RANGE = 1;
 const PARK_BLOCKS: readonly [number, number][] = [

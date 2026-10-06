@@ -25,6 +25,8 @@ import {
   ROAD_WIDTH,
   SIDEWALK_HEIGHT,
   STREET_BLOCKS,
+  LAMP_HEAD_HEIGHT,
+  LAMP_OFFSETS,
   blockKey,
   createRandom,
   isDistrictBlock,
@@ -38,6 +40,7 @@ const ROOF_COLORS = ['#a6afad', '#9ea8a6', '#b4bab5'];
 const TREE_URLS = {
   pine: '/models/pin-tree-v1.glb',
   broadleaf: '/models/tree-v1.glb',
+  quaternius: '/models/quaternius-tree-v1.glb',
 } as const;
 type TreeKind = keyof typeof TREE_URLS;
 interface TreePlacement {
@@ -265,18 +268,22 @@ export class City {
     const posts: Box[] = [],
       heads: Box[] = [],
       pools: Box[] = [];
-    const inset = LOT_HALF - 0.3;
     this.blocks(STREET_BLOCKS, (i, j) => {
-      for (const sx of [-1, 1])
-        for (const sz of [-1, 1]) {
-          const x = i * BLOCK_PITCH + sx * inset,
-            z = j * BLOCK_PITCH + sz * inset;
-          posts.push([x, SIDEWALK_HEIGHT + 0.58, z, 0.07, 1.16, 0.07]);
-          heads.push([x, SIDEWALK_HEIGHT + 1.2, z, 0.2, 0.1, 0.2]);
-          pools.push([x, SIDEWALK_HEIGHT + 0.012, z, 2.6, 2.6, 1]);
-        }
+      const offsets = isDistrictBlock(i, j) ? LAMP_OFFSETS : LAMP_OFFSETS.slice(0, 4);
+      for (const [ox, oz] of offsets) {
+        const x = i * BLOCK_PITCH + ox,
+          z = j * BLOCK_PITCH + oz;
+        // Broad foot, tapered-looking pedestal, slender pole and a capped lantern.
+        posts.push([x, SIDEWALK_HEIGHT + 0.045, z, 0.28, 0.09, 0.28]);
+        posts.push([x, SIDEWALK_HEIGHT + 0.17, z, 0.14, 0.18, 0.14]);
+        posts.push([x, SIDEWALK_HEIGHT + 0.87, z, 0.065, 1.25, 0.065]);
+        posts.push([x, SIDEWALK_HEIGHT + 1.54, z, 0.18, 0.06, 0.18]);
+        posts.push([x, SIDEWALK_HEIGHT + 1.76, z, 0.23, 0.07, 0.23]);
+        heads.push([x, SIDEWALK_HEIGHT + LAMP_HEAD_HEIGHT, z, 0.13, 0.16, 0.13]);
+        pools.push([x, SIDEWALK_HEIGHT + 0.012, z, 4.2, 4.2, 1]);
+      }
     });
-    this.batch(this.resources.cube, this.resources.material('#4c6972'), posts);
+    this.batch(this.resources.cube, this.resources.material('#39434a'), posts);
     this.batch(this.resources.cube, this.lampHeads, heads, undefined, false);
     const poolMesh = new InstancedMesh(this.plane, this.poolMaterial, pools.length);
     pools.forEach(([x, y, z, w, h], index) => {
@@ -305,8 +312,10 @@ export class City {
             -2.2 + Math.floor(n / 3) * 2.2 + (random() - 0.5) * 0.8,
           );
       } else if (isDistrictBlock(i, j)) {
-        // Flank the front plaza without touching the building or the visitor queue.
-        for (const sx of [-1, 1]) for (const z of [-1.8, 1.5]) add(i, j, sx * (LOT_HALF - 0.6), z);
+        // Seeded asymmetry: one on the left, two separated on the right, clear of runners.
+        add(i, j, -3.15 - random() * 0.12, -2.25 + random() * 0.8);
+        add(i, j, 3.15 + random() * 0.12, -2.6 + random() * 0.65);
+        add(i, j, 3.15 + random() * 0.12, 0.8 + random() * 0.65);
       }
     });
     return spots.map(([x, z, key], index) => ({
@@ -315,11 +324,11 @@ export class City {
       key,
       height: 1 + random() * 0.45,
       rotation: random() * Math.PI * 2,
-      kind: index % 2 === 0 ? 'pine' : 'broadleaf',
+      kind: (['pine', 'broadleaf', 'quaternius'] as const)[index % 3],
     }));
   }
 
-  /** Loads both authored tree models after the initial city preview, then instances every part. */
+  /** Loads authored tree models after the initial city preview, then instances every part. */
   loadTrees(assetBase = '') {
     return (this.treeLoad ??= this.buildTrees(assetBase));
   }
@@ -341,7 +350,7 @@ export class City {
               -bounds.min.y,
               -(bounds.min.z + bounds.max.z) / 2,
             ),
-        );
+          );
         const parts: TreePart[] = [];
         gltf.scene.traverse((node) => {
           if (!(node as Mesh).isMesh) return;
@@ -379,6 +388,33 @@ export class City {
           }
       return;
     }
+    const loadedKinds = new Set(
+      loaded.flatMap((result) => (result.status === 'fulfilled' ? [result.value.kind] : [])),
+    );
+    const placements = this.treePlacements.filter((placement) => loadedKinds.has(placement.kind));
+    const planters = this.tint(
+      this.resources.cube,
+      this.resources.material('#f3f2ed'),
+      placements.length,
+    );
+    const soil = this.tint(
+      this.resources.cube,
+      this.resources.material('#453b30'),
+      placements.length,
+    );
+    planters.mesh.name = 'tree-planters';
+    for (const placement of placements) {
+      planters.add(
+        this.matrix([placement.x, SIDEWALK_HEIGHT + 0.14, placement.z, 0.5, 0.28, 0.5]),
+        this.scratch.set('#ffffff'),
+        placement.key,
+      );
+      soil.add(
+        this.matrix([placement.x, SIDEWALK_HEIGHT + 0.282, placement.z, 0.36, 0.015, 0.36]),
+        this.scratch.set('#ffffff'),
+        placement.key,
+      );
+    }
     for (const result of loaded) {
       if (result.status === 'rejected') {
         console.warn('City: a tree model could not load', result.reason);
@@ -392,7 +428,7 @@ export class City {
         const batch = this.tint(part.geometry, part.material, placements.length);
         batch.mesh.name = `${kind}-trees-${partIndex}`;
         for (const placement of placements) {
-          this.dummy.position.set(placement.x, SIDEWALK_HEIGHT, placement.z);
+          this.dummy.position.set(placement.x, SIDEWALK_HEIGHT + 0.29, placement.z);
           this.dummy.rotation.set(0, placement.rotation, 0);
           this.dummy.scale.setScalar(placement.height);
           this.dummy.updateMatrix();

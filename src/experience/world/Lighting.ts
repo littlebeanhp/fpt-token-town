@@ -5,21 +5,38 @@ import {
   HemisphereLight,
   PCFShadowMap,
   PointLight,
+  SpotLight,
+  Vector3,
   type Scene,
-  type Vector3,
   type WebGPURenderer,
 } from 'three/webgpu';
 import type { LightingSample } from './CityClock';
-import { FOG_NEAR_OFFSET, FOG_FAR_OFFSET } from './layout';
+import {
+  FOG_NEAR_OFFSET,
+  FOG_FAR_OFFSET,
+  BLOCK_PITCH,
+  LAMP_OFFSETS,
+  LAMP_HEAD_HEIGHT,
+  SIDEWALK_HEIGHT,
+  blockIndex,
+} from './layout';
 
 const LIGHT_DISTANCE = 42;
 const SHADOW_HALF_SIZE = 16;
 
 export class Lighting {
   readonly sun = new DirectionalLight('#fff4dc', 3.3);
-  readonly ambient = new HemisphereLight('#e6f6ff', '#92a29a', 2.6);
-  /** Warm storefront light that keeps the focused district readable after dark. */
-  readonly focusLight = new PointLight('#ffcf94', 0, 15, 1.2);
+  readonly ambient = new HemisphereLight('#e6f6ff', '#39443f', 0.65);
+  /** Local window spill onto the entrance, with occlusion instead of a whole-block fill. */
+  readonly focusLight = new SpotLight('#ffcf94', 0, 8, Math.PI / 3, 0.65, 2);
+  private facade = new Vector3(0, 2, 2);
+  private readonly streetLights = Array.from(
+    { length: LAMP_OFFSETS.length },
+    () => new PointLight('#ffdaab', 0, 6, 2),
+  );
+  setFacade(x: number, y: number, z: number) {
+    this.facade.set(x, y, z);
+  }
   // Distant blocks fade into the sky color, so the far city reads as atmosphere, not an edge.
   readonly fog = new Fog('#e7ede9', 30, 110);
   private background = new Color('#e7ede9');
@@ -37,7 +54,19 @@ export class Lighting {
     shadowCamera.far = LIGHT_DISTANCE * 2.2;
     this.sun.shadow.normalBias = 0.04;
     this.sun.shadow.bias = -0.0002;
-    scene.add(this.sun, this.sun.target, this.ambient, this.focusLight);
+    this.focusLight.castShadow = true;
+    this.focusLight.shadow.mapSize.set(512, 512);
+    this.focusLight.shadow.camera.near = 0.1;
+    this.focusLight.shadow.normalBias = 0.015;
+    this.focusLight.shadow.bias = -0.0001;
+    scene.add(
+      this.sun,
+      this.sun.target,
+      this.ambient,
+      this.focusLight,
+      this.focusLight.target,
+      ...this.streetLights,
+    );
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = PCFShadowMap;
   }
@@ -53,8 +82,20 @@ export class Lighting {
     this.ambient.color.copy(sample.hemiSky);
     this.ambient.groundColor.copy(sample.hemiGround);
     this.ambient.intensity = sample.hemiIntensity;
-    this.focusLight.position.set(focus.x, focus.y + 3.4, focus.z + 3.6);
-    this.focusLight.intensity = sample.night * 22;
+    this.focusLight.position.copy(this.facade);
+    this.focusLight.target.position.set(this.facade.x, SIDEWALK_HEIGHT, this.facade.z + 2);
+    this.focusLight.target.updateMatrixWorld();
+    this.focusLight.intensity = sample.night * 14;
+    const x = blockIndex(focus.x) * BLOCK_PITCH,
+      z = blockIndex(focus.z) * BLOCK_PITCH;
+    this.streetLights.forEach((light, index) => {
+      light.position.set(
+        x + LAMP_OFFSETS[index][0],
+        SIDEWALK_HEIGHT + LAMP_HEAD_HEIGHT,
+        z + LAMP_OFFSETS[index][1],
+      );
+      light.intensity = sample.night * 7;
+    });
   }
   /** Keeps fog relative to the camera so every framing hides the same far distance. */
   setFogRange(cameraDistance: number) {
@@ -63,5 +104,6 @@ export class Lighting {
   }
   dispose() {
     this.sun.shadow.dispose();
+    this.focusLight.shadow.dispose();
   }
 }

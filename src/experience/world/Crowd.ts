@@ -15,6 +15,7 @@ import {
   type Object3D,
 } from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import type { VehiclePart } from '@/types/vehicle';
 import { TintedInstances } from '../core/TintedInstances';
 import {
   QUEUE_ARRIVAL_DISTANCE,
@@ -61,6 +62,7 @@ interface Person {
   /** Queue visitors keep their identity while cycling through queue and runner states. */
   flow?: CrowdFlow;
   flowSlot: number;
+  routeVariant: number;
   moving: boolean;
   stride: number;
 }
@@ -112,9 +114,8 @@ const CHARACTER_SPECS: Record<AnimatedCharacterKind, CharacterSpec> = {
     right: 'texturedmeshobj002',
   },
 };
-/** Branded crowd shares. FPT appears one-and-a-half times as often as Grab. */
-const GRAB_SHARE = 0.1;
-const FPT_SHARE = GRAB_SHARE * 1.5;
+/** FPT stays in the moving crowd; Grab is restricted to idle visitors and road riders. */
+const FPT_SHARE = 0.15;
 /** Hair-top height of a voxel person at scale 1, so the rider matches their stature. */
 const PERSON_HEIGHT = 0.595;
 const QUEUE_SHIFT_SECONDS = 0.2;
@@ -128,7 +129,7 @@ interface RunnerRoute {
 
 interface CrowdFlow {
   layout: QueueLayout;
-  route: RunnerRoute;
+  routes: RunnerRoute[];
   queueSlots: number;
   totalSlots: number;
 }
@@ -302,9 +303,9 @@ export class Crowd {
     for (const person of this.people) {
       const roll = random();
       person.character =
-        assets.grab && roll < GRAB_SHARE
+        assets.grab && !person.walker && !person.flow && roll < 0.4
           ? 'grab'
-          : assets.fpt && roll >= GRAB_SHARE && roll < GRAB_SHARE + FPT_SHARE
+          : assets.fpt && roll >= 0.4 && roll < 0.4 + FPT_SHARE
             ? 'fpt'
             : 'voxel';
       person.index = person.character === 'voxel' ? voxels++ : characterCounts[person.character]++;
@@ -317,8 +318,9 @@ export class Crowd {
     for (const kind of CHARACTER_KINDS) {
       const asset = assets[kind],
         count = characterCounts[kind];
-      if (!asset || count === 0) continue;
+      if (!asset) continue;
       this.characterAssets[kind] = asset;
+      if (count === 0) continue;
       const batches: CharacterBatches = {
         body: new TintedInstances(asset.body.geometry, asset.material, count, true),
         left: new TintedInstances(asset.left.geometry, asset.material, count, true),
@@ -349,6 +351,33 @@ export class Crowd {
     this.update(0);
   }
 
+  /** Bake the already-loaded Grab into a seated road pose; Traffic owns these copies. */
+  createGrabRiderParts(): VehiclePart[] | undefined {
+    const asset = this.characterAssets.grab;
+    if (!asset) return undefined;
+    const material = asset.material.clone();
+    const bikeTransform = new Matrix4()
+      .makeTranslation(0, 0.12, -0.06)
+      .multiply(new Matrix4().makeScale(0.65, 0.65, 0.65));
+    // Rigid legs pivot forward from the hips, with the original mesh texture preserved.
+    const seatedLeg = new Matrix4()
+      .makeTranslation(0, 0.36, 0)
+      .multiply(new Matrix4().makeRotationX(-0.65))
+      .multiply(new Matrix4().makeTranslation(0, -0.36, 0));
+    return (['body', 'left', 'right'] as const).map((name) => {
+      const part = asset[name];
+      const transform = bikeTransform.clone();
+      if (name !== 'body') transform.multiply(seatedLeg);
+      transform.multiply(part.rest);
+      return {
+        name: `grab-asset-${name}`,
+        geometry: part.geometry.clone().applyMatrix4(transform),
+        material,
+        color: new Color('#ffffff'),
+      };
+    });
+  }
+
   private spawn(
     values: Partial<Person> & Pick<Person, 'x' | 'z' | 'heading'>,
     random: () => number,
@@ -359,6 +388,7 @@ export class Crowd {
       walker: false,
       character: 'voxel',
       flowSlot: -1,
+      routeVariant: Math.floor(random() * 3),
       moving: false,
       stride: 0,
       centerX: 0,
@@ -377,12 +407,12 @@ export class Crowd {
     const queueSlots = queueSlotCount(layout);
     const tail = { x: 0, z: 0, heading: 0 };
     this.sampleQueueSlot(layout, queueSlots - 1, tail);
-    const route = this.createRunnerRoute(site, layout, tail);
+    const routes = [0, 1, 2].map((lane) => this.createRunnerRoute(site, layout, tail, lane));
     const flow: CrowdFlow = {
       layout,
-      route,
+      routes,
       queueSlots,
-      totalSlots: queueSlots + RUNNERS_PER_QUEUE,
+      totalSlots: queueSlots + RUNNERS_PER_QUEUE + 1,
     };
     for (let n = 0; n < flow.totalSlots; n++) {
       const person = this.spawn(
@@ -433,17 +463,22 @@ export class Crowd {
     return sampleQueueFlow(layout, layout.length + QUEUE_ARRIVAL_DISTANCE - distance, out);
   }
 
-  private createRunnerRoute(site: QueueSite, layout: QueueLayout, tail: QueuePoint): RunnerRoute {
+  private createRunnerRoute(
+    site: QueueSite,
+    layout: QueueLayout,
+    tail: QueuePoint,
+    lane: number,
+  ): RunnerRoute {
     const front = { x: 0, z: 0, heading: 0 };
     this.sampleQueueSlot(layout, 0, front);
+    const side = 2.65 + lane * 0.17;
     const points: QueuePoint[] = [
-      { x: front.x, z: front.z },
       { x: site.x, z: site.front - 0.5 },
-      { x: site.x + 0.45, z: site.front + 0.38 },
-      { x: site.x + 2.8, z: site.front + 0.38 },
-      { x: site.x + 2.8, z: site.front - 4.8 },
-      { x: site.x - 2.8, z: site.front - 4.8 },
-      { x: site.x - 2.8, z: site.front + 0.85 },
+      { x: site.x + 0.45, z: site.front + 0.28 + lane * 0.12 },
+      { x: site.x + side, z: site.front + 0.28 + lane * 0.12 },
+      { x: site.x + side, z: site.front - 4.55 - lane * 0.18 },
+      { x: site.x - side, z: site.front - 4.55 - lane * 0.18 },
+      { x: site.x - side, z: site.front + 0.85 },
       { x: tail.x, z: tail.z },
     ];
     const cumulative = [0];
@@ -507,11 +542,23 @@ export class Crowd {
   private moveFlow(person: Person, elapsed: number) {
     const flow = person.flow!,
       intervalProgress = (elapsed % QUEUE_STEP_SECONDS) / QUEUE_STEP_SECONDS,
-      track = queueTrackIndex(person.flowSlot, elapsed, flow.queueSlots);
+      track = queueTrackIndex(person.flowSlot, elapsed, flow.queueSlots),
+      route = flow.routes[person.routeVariant];
+    if (track === flow.totalSlots - 1) {
+      this.sampleQueueSlot(flow.layout, 0, this.flowFrom);
+      const progress = Math.min(intervalProgress / 0.4, 1);
+      person.x = this.flowFrom.x;
+      person.z = this.flowFrom.z + (route.points[0].z - this.flowFrom.z) * progress;
+      person.heading = Math.PI;
+      person.moving = progress < 1;
+      person.stride =
+        progress * Math.abs(route.points[0].z - this.flowFrom.z) * STRIDE_RADIANS_PER_UNIT;
+      return;
+    }
     if (track < flow.queueSlots) {
       this.sampleQueueSlot(flow.layout, track, this.flowTo);
       if (track + 1 < flow.queueSlots) this.sampleQueueSlot(flow.layout, track + 1, this.flowFrom);
-      else this.sampleRunner(flow.route, flow.route.length, this.flowFrom);
+      else this.sampleRunner(route, route.length, this.flowFrom);
       const raw = Math.min(intervalProgress / (QUEUE_SHIFT_SECONDS / QUEUE_STEP_SECONDS), 1),
         progress = raw * raw * (3 - 2 * raw);
       person.x = this.flowFrom.x + (this.flowTo.x - this.flowFrom.x) * progress;
@@ -522,9 +569,12 @@ export class Crowd {
       person.stride = Math.PI * 2 * progress;
       return;
     }
-    const rank = flow.totalSlots - 1 - track,
-      distance = ((rank + intervalProgress) / RUNNERS_PER_QUEUE) * flow.route.length;
-    this.sampleRunner(flow.route, distance, person);
+    const rank = flow.queueSlots + RUNNERS_PER_QUEUE - 1 - track,
+      progress = (rank + intervalProgress) / RUNNERS_PER_QUEUE,
+      // Vary spacing smoothly while preserving exactly one arrival each half-second.
+      stagger = Math.sin(progress * Math.PI) * Math.sin(person.phase) * 0.018,
+      distance = (progress + stagger) * route.length;
+    this.sampleRunner(route, distance, person);
     person.moving = true;
     person.stride = distance * STRIDE_RADIANS_PER_UNIT + person.phase;
   }
